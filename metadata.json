@@ -1,0 +1,5 @@
+{
+  "name": "Splitme Admin",
+  "description": "Una interfaz administrativa de alta gama para gestionar elementos del menú de restaurantes, con personalización detallada de ingredientes, seguimiento nutricional y gestión de imágenes.",
+  "requestFramePermissions": []
+}

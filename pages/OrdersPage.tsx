@@ -1,0 +1,439 @@
+
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  ShoppingBag, Clock, CheckCircle2, Utensils, Hash, 
+  MessageSquare, Play, Check, CircleDollarSign, 
+  Timer, AlertCircle, Loader2, ChevronDown, ChevronUp, BellRing, X,
+  Maximize2, Minimize2
+} from 'lucide-react';
+import { supabase } from '../supabase';
+import { CURRENT_RESTAURANT } from '../types';
+
+const BatchCard: React.FC<{ 
+  batch: any, 
+  batchIndex: number,
+  onUpdateBatchStatus: (batchId: string, newStatus: string) => void 
+}> = ({ batch, batchIndex, onUpdateBatchStatus }) => {
+  const [isExpanded, setIsExpanded] = useState(batch.status !== 'SERVIDO');
+
+  const statusConfig = {
+    'PENDIENTE': { color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Clock, next: 'EN PREPARACIÓN', label: 'Preparar' },
+    'EN PREPARACIÓN': { color: 'bg-amber-100 text-amber-800 border-amber-200', icon: Play, next: 'LISTO', label: 'Terminar' },
+    'LISTO': { color: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: Check, next: 'SERVIDO', label: 'Servir' },
+    'SERVIDO': { color: 'bg-emerald-50 text-emerald-600 border-emerald-100', icon: CheckCircle2, next: null, label: 'Entregado' }
+  };
+
+  const currentStatus = statusConfig[batch.status as keyof typeof statusConfig] || statusConfig['PENDIENTE'];
+  
+  const sortedItems = [...(batch.order_items || [])].sort((a, b) => 
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+
+  return (
+    <div className={`rounded-[2rem] border transition-all duration-500 mb-3 overflow-hidden ${
+      batch.status === 'SERVIDO' 
+        ? 'opacity-60 border-emerald-100 bg-emerald-50/10' 
+        : 'shadow-sm border-gray-200 bg-white'
+    }`}>
+      <div 
+        onClick={() => setIsExpanded(!isExpanded)}
+        className={`px-5 py-3.5 flex items-center justify-between cursor-pointer transition-colors border-b ${
+          isExpanded ? 'bg-indigo-50/30 border-gray-100' : 'bg-gray-50/80 border-transparent'
+        } hover:bg-indigo-50/50`}
+      >
+        <div className="flex items-center gap-4">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px] transition-all duration-500 transform ${
+            batch.status === 'SERVIDO' ? 'bg-emerald-500 text-white scale-90 rotate-[360deg]' : 'bg-slate-800 text-white shadow-md'
+          }`}>
+            {batch.status === 'SERVIDO' ? <CheckCircle2 size={16} /> : `#${batchIndex + 1}`}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">
+                {batch.status === 'SERVIDO' ? 'Lote Servido' : `Lote ${batchIndex + 1}`}
+              </h4>
+              <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border transition-colors ${currentStatus.color}`}>
+                {batch.status}
+              </span>
+            </div>
+            <p className="text-[9px] text-slate-500 font-bold flex items-center gap-1 mt-0.5">
+              <Timer size={10} /> {new Date(batch.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
+          {currentStatus.next && (
+            <button 
+              onClick={() => onUpdateBatchStatus(batch.id, currentStatus.next!)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm active:scale-95"
+            >
+              <currentStatus.icon size={10} /> {currentStatus.label}
+            </button>
+          )}
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isExpanded ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}>
+            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </div>
+        </div>
+      </div>
+
+      <div className={`transition-all duration-500 ease-in-out ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'} overflow-hidden`}>
+        <div className="px-5 pb-5 pt-3 space-y-2">
+          {sortedItems.map((item: any) => {
+            const menuItem = Array.isArray(item.menu_items) ? item.menu_items[0] : item.menu_items;
+            const itemName = menuItem?.name || 'Cargando...';
+
+            return (
+              <div key={item.id} className="flex justify-between items-start py-2 border-b border-slate-50 last:border-0">
+                <div className="flex gap-3">
+                  <span className="text-xs font-black text-indigo-700 bg-indigo-50 w-6 h-6 rounded-lg flex items-center justify-center border border-indigo-100">
+                    {item.quantity}
+                  </span>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800 leading-tight">
+                      {itemName}
+                    </p>
+                    {item.notes && (
+                      <div className="flex items-center gap-1.5 mt-1 text-[10px] text-amber-700 font-medium italic bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-100/50">
+                        <MessageSquare size={10} /> {item.notes}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const OrderGroupCard: React.FC<{ 
+  order: any, 
+  onCloseOrder: (order: any) => void,
+  onUpdateBatchStatus: (batchId: string, newStatus: string) => void,
+  forceExpanded?: boolean
+}> = ({ order, onCloseOrder, onUpdateBatchStatus, forceExpanded = false }) => {
+  // Inicializamos colapsado por defecto, a menos que se fuerce la expansión
+  const [isCollapsed, setIsCollapsed] = useState(!forceExpanded);
+  const batches = order.order_batches || [];
+
+  // Sincronizar con forceExpanded cuando cambie externamente (nuevo pedido)
+  useEffect(() => {
+    if (forceExpanded) {
+      setIsCollapsed(false);
+    }
+  }, [forceExpanded]);
+
+  return (
+    <div className={`bg-white rounded-[2.5rem] border border-gray-100 shadow-md overflow-hidden flex flex-col transition-all duration-500 ease-in-out h-fit animate-in fade-in slide-in-from-bottom-4 ${isCollapsed ? 'max-w-full' : ''}`}>
+      <div 
+        className={`p-6 cursor-pointer transition-colors duration-300 ${isCollapsed ? 'bg-slate-50/50' : 'border-b border-gray-50 bg-gray-50/30'}`}
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <div className="flex flex-wrap justify-between items-center gap-4">
+          <div className="flex items-center gap-4">
+            <div className={`w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm border border-gray-100 font-black text-xl transition-transform duration-500 ${isCollapsed ? 'scale-90' : 'scale-100'}`}>
+              {order.tables?.table_number || '??'}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-black text-slate-900 tracking-tight leading-none">Mesa {order.tables?.table_number}</h3>
+                {isCollapsed && (
+                   <span className="px-3 py-0.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black tracking-tighter shadow-sm animate-in zoom-in-95">
+                    ${Number(order.total_amount).toLocaleString('es-CL')}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-1.5 text-[9px] font-black uppercase text-slate-400 tracking-widest">
+                <Timer size={10} /> {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <span className="mx-0.5 opacity-20">•</span>
+                <Hash size={10} /> {order.id.slice(0, 6).toUpperCase()}
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                onCloseOrder(order);
+              }}
+              className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 shadow-lg shadow-emerald-100 transition-all active:scale-95"
+            >
+              <CircleDollarSign size={14} /> Cerrar Cuenta
+            </button>
+            <button 
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${isCollapsed ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
+            >
+              {isCollapsed ? <Maximize2 size={18} /> : <Minimize2 size={18} />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className={`transition-all duration-500 ease-in-out overflow-hidden ${isCollapsed ? 'max-h-0' : 'max-h-[1200px]'}`}>
+        <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-white max-h-[500px]">
+          {batches.length > 0 ? (
+            batches.map((batch: any, idx: number) => (
+              <BatchCard 
+                key={batch.id} 
+                batch={batch} 
+                batchIndex={idx} 
+                onUpdateBatchStatus={onUpdateBatchStatus} 
+              />
+            ))
+          ) : (
+            <div className="flex flex-col items-center justify-center py-10 text-slate-200">
+              <AlertCircle size={32} strokeWidth={1} className="mb-2" />
+              <p className="text-[9px] font-black uppercase tracking-widest">Esperando primer pedido...</p>
+            </div>
+          )}
+        </div>
+
+        <div className="px-8 py-5 bg-slate-50/50 border-t border-gray-100 flex justify-between items-center">
+           <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Total Acumulado</p>
+              <p className="text-2xl font-black text-indigo-600 tracking-tighter">${Number(order.total_amount).toLocaleString('es-CL')}</p>
+           </div>
+           <div className="px-4 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-indigo-100">
+              {batches.length} {batches.length === 1 ? 'Envío' : 'Envíos'}
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const OrdersPage: React.FC = () => {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const bellAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    bellAudioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+    
+    fetchActiveOrders();
+
+    const channel = supabase
+      .channel('admin-kitchen-realtime')
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'orders',
+        filter: CURRENT_RESTAURANT?.id ? `restaurant_id=eq.${CURRENT_RESTAURANT.id}` : undefined
+      }, (payload) => {
+        setExpandedOrderId(payload.new.id);
+        fetchActiveOrders();
+      })
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'order_batches' 
+      }, (payload) => {
+        if (bellAudioRef.current) {
+          bellAudioRef.current.currentTime = 0;
+          bellAudioRef.current.play().catch(() => {});
+        }
+        setExpandedOrderId(payload.new.order_id);
+        fetchActiveOrders();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_batches' }, fetchActiveOrders)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchActiveOrders)
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'orders',
+        filter: CURRENT_RESTAURANT?.id ? `restaurant_id=eq.${CURRENT_RESTAURANT.id}` : undefined
+      }, fetchActiveOrders)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const fetchActiveOrders = async () => {
+    if (!CURRENT_RESTAURANT?.id) return;
+    try {
+      setErrorMsg(null);
+      
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('orders')
+        .select('*, tables(table_number), order_batches(*)')
+        .eq('restaurant_id', CURRENT_RESTAURANT.id)
+        .or('status.eq.ABIERTO,status.eq.SOLICITADO');
+
+      if (ordersError) throw ordersError;
+      if (!ordersData) { setOrders([]); return; }
+
+      const batchIds = ordersData.flatMap(order => (order.order_batches || []).map((b: any) => b.id));
+
+      let itemsData: any[] = [];
+      if (batchIds.length > 0) {
+        const { data, error: itemsError } = await supabase
+          .from('order_items')
+          .select('*, menu_items(name)')
+          .in('batch_id', batchIds);
+        if (itemsError) throw itemsError;
+        itemsData = data || [];
+      }
+
+      const processedOrders = ordersData.map(order => {
+        const orderBatches = (order.order_batches || []).map((batch: any) => ({
+          ...batch,
+          order_items: itemsData.filter(item => item.batch_id === batch.id)
+        })).sort((a: any, b: any) => 
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+
+        // Calcular el timestamp de la actividad más reciente (orden o último lote)
+        const latestBatchTime = orderBatches.length > 0 
+          ? Math.max(...orderBatches.map((b: any) => new Date(b.created_at).getTime()))
+          : new Date(order.created_at).getTime();
+        
+        const lastActivity = Math.max(new Date(order.created_at).getTime(), latestBatchTime);
+
+        return {
+          ...order,
+          order_batches: orderBatches,
+          lastActivity
+        };
+      });
+
+      // Ordenar por actividad reciente DESC
+      processedOrders.sort((a, b) => b.lastActivity - a.lastActivity);
+
+      setOrders(processedOrders);
+    } catch (err: any) {
+      console.error("Fetch Orders Error:", err);
+      setErrorMsg(err.message || 'Error de conexión con cocina');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateBatchStatus = async (batchId: string, newStatus: string) => {
+    try {
+      const { error } = await supabase
+        .from('order_batches')
+        .update({ status: newStatus })
+        .eq('id', batchId);
+      if (error) throw error;
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    }
+  };
+
+  const handleCloseOrder = async (order: any) => {
+    const batches = order.order_batches || [];
+    const allServidos = batches.every((b: any) => b.status === 'SERVIDO');
+
+    if (!allServidos) {
+      setErrorMsg("Para poder cerrar una mesa, asegurate que todos los lotes estén marcados como \"servido\"");
+      alert("Para poder cerrar una mesa, asegurate que todos los lotes estén marcados como \"servido\"");
+      return;
+    }
+
+    if (!window.confirm(`¿Estás seguro de que deseas cerrar la cuenta de la mesa ${order.tables?.table_number}?`)) return;
+    
+    try {
+      setLoading(true);
+      setErrorMsg(null);
+      
+      const { error: orderError } = await supabase
+        .from('orders')
+        .update({ status: 'CERRADA' })
+        .eq('id', order.id)
+        .eq('restaurant_id', CURRENT_RESTAURANT?.id || '');
+      
+      if (orderError) throw orderError;
+
+      if (order.table_id) {
+        const { error: tableError } = await supabase
+          .from('tables')
+          .update({ status: 'Libre' })
+          .eq('id', order.table_id)
+          .eq('restaurant_id', CURRENT_RESTAURANT?.id || '');
+        
+        if (tableError) console.warn("Error parcial al liberar mesa:", tableError);
+      }
+
+      await fetchActiveOrders();
+      alert(`Mesa ${order.tables?.table_number} cerrada correctamente.`);
+
+    } catch (err: any) {
+      console.error("Error al cerrar la cuenta:", err);
+      setErrorMsg("No se pudo cerrar la cuenta: " + err.message);
+      alert("No se pudo cerrar la cuenta: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-40 gap-4">
+        <Loader2 className="animate-spin text-indigo-600" size={48} />
+        <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Sincronizando cocina...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-10 animate-in fade-in duration-700 pb-20">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <h1 className="text-4xl font-black text-slate-900 tracking-tighter flex items-center gap-3">
+            Kitchen Monitor <BellRing className="text-indigo-600 animate-pulse" size={32} />
+          </h1>
+          <p className="text-slate-500 mt-1 font-medium">Operaciones activas en salón y cocina</p>
+        </div>
+        <div className="bg-white px-6 py-2.5 rounded-2xl border border-gray-100 shadow-sm font-black text-indigo-600 text-[10px] uppercase tracking-widest">
+          {orders.length} Mesas Activas
+        </div>
+      </div>
+
+      {errorMsg && (
+        <div className="p-6 bg-rose-50 border-2 border-rose-100 rounded-3xl flex items-center gap-4 text-rose-600 animate-shake">
+          <AlertCircle size={24} />
+          <div className="flex-1">
+            <p className="font-black text-xs uppercase tracking-widest">Atención Requerida</p>
+            <p className="text-sm font-bold opacity-80">{errorMsg}</p>
+          </div>
+          <button onClick={() => setErrorMsg(null)} className="p-2 hover:bg-rose-100 rounded-full">
+            <X size={18} />
+          </button>
+        </div>
+      )}
+
+      {orders.length > 0 ? (
+        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-8 items-start">
+          {orders.map(order => (
+            <OrderGroupCard 
+              key={order.id} 
+              order={order} 
+              onCloseOrder={handleCloseOrder}
+              onUpdateBatchStatus={handleUpdateBatchStatus}
+              forceExpanded={order.id === expandedOrderId}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="py-40 flex flex-col items-center justify-center bg-white rounded-[4rem] border border-dashed border-gray-200 text-center">
+           <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center text-gray-200 mb-6">
+              <Utensils size={40} />
+           </div>
+           <h3 className="text-xl font-black text-slate-300 uppercase tracking-widest">Cocina en calma</h3>
+           <p className="text-xs text-slate-400 mt-2 font-medium">Los pedidos aparecerán aquí automáticamente</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default OrdersPage;
