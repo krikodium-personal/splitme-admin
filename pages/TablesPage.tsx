@@ -121,21 +121,48 @@ const TablesPage: React.FC = () => {
         (openOrders || []).map(order => order.table_id).filter(Boolean)
       );
 
-      // Actualizar el estado de las mesas según las órdenes abiertas
+      // Determinar qué mesas necesitan actualización en la BD
+      const tablesToUpdate: { id: string; status: 'Libre' | 'Ocupada' }[] = [];
+      
       const tablesWithStatus = (tablesData || []).map(table => {
         const isOccupied = occupiedTableIds.has(table.id);
-        // Normalizar estados antiguos a los nuevos estados válidos
-        const normalizedStatus = table.status === 'Reservada' || table.status === 'Disponible' || !table.status 
-          ? 'Libre' 
-          : (table.status === 'Ocupada' ? 'Ocupada' : 'Libre');
+        const correctStatus = isOccupied ? 'Ocupada' as const : 'Libre' as const;
+        
+        // Verificar si el estado original en la BD necesita actualización
+        const originalStatus = table.status;
+        const needsUpdate = originalStatus !== correctStatus || 
+                           (originalStatus !== 'Libre' && originalStatus !== 'Ocupada');
+        
+        if (needsUpdate) {
+          tablesToUpdate.push({ id: table.id, status: correctStatus });
+        }
         
         return {
           ...table,
-          status: isOccupied ? 'Ocupada' as const : (normalizedStatus === 'Ocupada' ? 'Ocupada' as const : 'Libre' as const)
+          status: correctStatus
         };
       });
 
       setTables(tablesWithStatus);
+
+      // Actualizar todas las mesas que necesitan corrección en batch
+      if (tablesToUpdate.length > 0) {
+        const updatePromises = tablesToUpdate.map(({ id, status }) =>
+          supabase
+            .from('tables')
+            .update({ status })
+            .eq('id', id)
+            .eq('restaurant_id', CURRENT_RESTAURANT.id)
+        );
+        
+        const results = await Promise.all(updatePromises);
+        const errors = results.filter(r => r.error);
+        if (errors.length === 0) {
+          console.log(`✅ Actualizadas ${tablesToUpdate.length} mesas en la base de datos`);
+        } else {
+          console.warn(`⚠️ Algunas mesas no se pudieron actualizar:`, errors);
+        }
+      }
 
       const { data: waitersData, error: waitersError } = await supabase
         .from('waiters')
