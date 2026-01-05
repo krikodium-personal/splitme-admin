@@ -517,6 +517,28 @@ const OrdersPage: React.FC = () => {
         console.log('✅ Mesa liberada correctamente:', updatedTable[0]);
       }
 
+      // Archivar la orden y todos sus datos relacionados
+      // Esto mueve order_items, order_batches, order_guests a tablas de historial
+      // y elimina los registros de las tablas activas para mantener el rendimiento
+      console.log('📦 Archivando orden y datos relacionados...');
+      const { data: archiveResult, error: archiveError } = await supabase.rpc('archive_order', {
+        order_id: order.id,
+        restaurant_id_param: CURRENT_RESTAURANT?.id || ''
+      });
+
+      if (archiveError) {
+        console.warn("⚠️ Error al archivar orden (no crítico):", archiveError);
+        // No lanzamos error aquí porque la orden ya está cerrada
+        // El archivado puede hacerse manualmente después si es necesario
+      } else if (archiveResult && archiveResult.success) {
+        console.log('✅ Orden archivada correctamente:', {
+          archived_records: archiveResult.archived_records,
+          archived_at: archiveResult.archived_at
+        });
+      } else {
+        console.warn("⚠️ La función de archivado no está disponible aún. Ejecuta archive_order_function.sql en Supabase.");
+      }
+
       // Refrescar las órdenes activas después de un pequeño delay para que el usuario vea el cambio
       setTimeout(async () => {
         await fetchActiveOrders();
