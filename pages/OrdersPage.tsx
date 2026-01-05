@@ -496,15 +496,25 @@ const OrdersPage: React.FC = () => {
 
       // Liberar la mesa
       if (order.table_id) {
-        const { error: tableError } = await supabase
+        console.log('🔄 Liberando mesa:', order.table_id);
+        const { data: updatedTable, error: tableError } = await supabase
           .from('tables')
           .update({ status: 'Libre' })
           .eq('id', order.table_id)
-          .eq('restaurant_id', CURRENT_RESTAURANT?.id || '');
+          .eq('restaurant_id', CURRENT_RESTAURANT?.id || '')
+          .select('id, status');
         
         if (tableError) {
-          console.warn("Error parcial al liberar mesa:", tableError);
+          console.error("❌ Error al liberar mesa:", tableError);
+          throw new Error(`No se pudo liberar la mesa: ${tableError.message}`);
         }
+        
+        if (!updatedTable || updatedTable.length === 0) {
+          console.warn("⚠️ La actualización de la mesa no afectó ninguna fila");
+          throw new Error('No se pudo actualizar el estado de la mesa. Verifica los permisos RLS.');
+        }
+        
+        console.log('✅ Mesa liberada correctamente:', updatedTable[0]);
       }
 
       // Refrescar las órdenes activas después de un pequeño delay para que el usuario vea el cambio
