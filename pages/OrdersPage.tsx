@@ -4,7 +4,7 @@ import {
   ShoppingBag, Clock, CheckCircle2, Utensils, Hash, 
   MessageSquare, Play, Check, CircleDollarSign, 
   Timer, AlertCircle, Loader2, ChevronDown, ChevronUp, BellRing, X,
-  Maximize2, Minimize2
+  Maximize2, Minimize2, Archive, CheckCircle
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { CURRENT_RESTAURANT } from '../types';
@@ -111,12 +111,16 @@ const BatchCard: React.FC<{
 
 const OrderGroupCard: React.FC<{ 
   order: any, 
-  onCloseOrder: (order: any) => void,
+  onCloseOrder: (order: any) => Promise<boolean>,
   onUpdateBatchStatus: (batchId: string, newStatus: string) => void,
-  forceExpanded?: boolean
-}> = ({ order, onCloseOrder, onUpdateBatchStatus, forceExpanded = false }) => {
+  forceExpanded?: boolean,
+  isClosed?: boolean
+}> = ({ order, onCloseOrder, onUpdateBatchStatus, forceExpanded = false, isClosed: propIsClosed = false }) => {
   // Inicializamos colapsado por defecto, a menos que se fuerce la expansión
   const [isCollapsed, setIsCollapsed] = useState(!forceExpanded);
+  const [isOrderClosed, setIsOrderClosed] = useState(propIsClosed);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const batches = order.order_batches || [];
 
   // Sincronizar con forceExpanded cuando cambie externamente (nuevo pedido)
@@ -155,15 +159,37 @@ const OrderGroupCard: React.FC<{
           </div>
           
           <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                onCloseOrder(order);
-              }}
-              className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 shadow-lg shadow-emerald-100 transition-all active:scale-95"
-            >
-              <CircleDollarSign size={14} /> Cerrar Cuenta
-            </button>
+            {!isOrderClosed && !propIsClosed && (
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isOrderClosed && !isClosing) {
+                    setShowConfirmModal(true);
+                  }
+                }}
+                disabled={isOrderClosed || isClosing}
+                className={`flex items-center gap-2 px-5 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg transition-all ${
+                  isClosing
+                    ? 'bg-amber-600 text-white shadow-amber-100 cursor-wait'
+                    : 'bg-red-600 text-white hover:bg-red-700 shadow-red-100 active:scale-95 cursor-pointer'
+                }`}
+              >
+                {isClosing ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Cerrando...
+                  </>
+                ) : (
+                  <>
+                    <CircleDollarSign size={14} /> Cerrar Cuenta
+                  </>
+                )}
+              </button>
+            )}
+            {(isOrderClosed || propIsClosed) && (
+              <div className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-100">
+                <CheckCircle2 size={14} /> Cuenta Cerrada
+              </div>
+            )}
             <button 
               onClick={() => setIsCollapsed(!isCollapsed)}
               className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${isCollapsed ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
@@ -171,6 +197,53 @@ const OrderGroupCard: React.FC<{
               {isCollapsed ? <Maximize2 size={18} /> : <Minimize2 size={18} />}
             </button>
           </div>
+          
+          {/* Modal de Confirmación */}
+          {showConfirmModal && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4" onClick={() => setShowConfirmModal(false)}>
+              <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
+                <div className="text-center mb-6">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertCircle className="text-red-600" size={32} />
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 mb-2">¿Cerrar Cuenta?</h3>
+                  <p className="text-slate-600 font-medium">
+                    Estás a punto de cerrar la cuenta de la <span className="font-black text-indigo-600">Mesa {order.tables?.table_number}</span>
+                  </p>
+                  <p className="text-sm text-slate-500 mt-2">
+                    Total: <span className="font-black text-lg text-indigo-600">${Number(order.total_amount).toLocaleString('es-CL')}</span>
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowConfirmModal(false)}
+                    className="flex-1 px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-200 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setShowConfirmModal(false);
+                      setIsClosing(true);
+                      const success = await onCloseOrder(order);
+                      if (success) {
+                        setIsOrderClosed(true);
+                        // Esperar un momento para que el usuario vea el cambio de estado antes de que la orden desaparezca
+                        setTimeout(() => {
+                          // El componente desaparecerá cuando fetchActiveOrders() se ejecute
+                        }, 2000);
+                      } else {
+                        setIsClosing(false);
+                      }
+                    }}
+                    className="flex-1 px-6 py-3 bg-red-600 text-white rounded-xl font-black text-sm uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
+                  >
+                    Confirmar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -212,6 +285,7 @@ const OrdersPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const [showClosedOrders, setShowClosedOrders] = useState(false);
   const bellAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -257,16 +331,34 @@ const OrdersPage: React.FC = () => {
     };
   }, []);
 
+  // Refrescar órdenes cuando cambie el toggle
+  useEffect(() => {
+    if (!loading) {
+      fetchActiveOrders();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showClosedOrders]);
+
   const fetchActiveOrders = async () => {
     if (!CURRENT_RESTAURANT?.id) return;
     try {
       setErrorMsg(null);
       
-      const { data: ordersData, error: ordersError } = await supabase
+      // Construir la query según el toggle
+      let query = supabase
         .from('orders')
         .select('*, tables(table_number), order_batches(*)')
-        .eq('restaurant_id', CURRENT_RESTAURANT.id)
-        .or('status.eq.ABIERTO,status.eq.SOLICITADO');
+        .eq('restaurant_id', CURRENT_RESTAURANT.id);
+      
+      if (showClosedOrders) {
+        // Mostrar órdenes cerradas (Pagado)
+        query = query.eq('status', 'Pagado');
+      } else {
+        // Mostrar órdenes abiertas (ABIERTO o SOLICITADO)
+        query = query.or('status.eq.ABIERTO,status.eq.SOLICITADO');
+      }
+      
+      const { data: ordersData, error: ordersError } = await query;
 
       if (ordersError) throw ordersError;
       if (!ordersData) { setOrders([]); return; }
@@ -329,30 +421,80 @@ const OrdersPage: React.FC = () => {
     }
   };
 
-  const handleCloseOrder = async (order: any) => {
+  const handleCloseOrder = async (order: any): Promise<boolean> => {
     const batches = order.order_batches || [];
     const allServidos = batches.every((b: any) => b.status === 'SERVIDO');
 
     if (!allServidos) {
       setErrorMsg("Para poder cerrar una mesa, asegurate que todos los lotes estén marcados como \"servido\"");
-      alert("Para poder cerrar una mesa, asegurate que todos los lotes estén marcados como \"servido\"");
-      return;
+      return false;
     }
-
-    if (!window.confirm(`¿Estás seguro de que deseas cerrar la cuenta de la mesa ${order.tables?.table_number}?`)) return;
     
     try {
-      setLoading(true);
       setErrorMsg(null);
       
-      const { error: orderError } = await supabase
-        .from('orders')
-        .update({ status: 'CERRADA' })
-        .eq('id', order.id)
-        .eq('restaurant_id', CURRENT_RESTAURANT?.id || '');
+      // Actualizar el status a 'Pagado' (consistente con DashboardPage y RestaurantDetailsPage)
+      console.log('🔄 Cerrando orden:', order.id, 'Status actual:', order.status, 'Restaurant ID:', CURRENT_RESTAURANT?.id);
       
-      if (orderError) throw orderError;
+      // Intentar usar función RPC primero (si existe), si no, usar update directo
+      console.log('🔄 Cerrando orden:', order.id, 'Status actual:', order.status);
+      
+      // Intentar con función RPC (bypasea RLS)
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('close_order', {
+        order_id: order.id,
+        restaurant_id_param: CURRENT_RESTAURANT?.id || ''
+      });
+      
+      if (!rpcError && rpcResult && !rpcResult.error) {
+        console.log('✅ Orden cerrada usando RPC:', rpcResult);
+        // La función RPC ya actualizó el status, continuar
+      } else {
+        // Si la función RPC no existe o falla, intentar update directo
+        console.log('⚠️ RPC no disponible, intentando update directo...');
+        
+        const { error: orderError, data: updatedData } = await supabase
+          .from('orders')
+          .update({ status: 'Pagado' })
+          .eq('id', order.id)
+          .eq('restaurant_id', CURRENT_RESTAURANT?.id || '')
+          .select('id, status');
+        
+        if (orderError) {
+          console.error("❌ Error updating order:", orderError);
+          throw orderError;
+        }
+        
+        if (!updatedData || updatedData.length === 0) {
+          throw new Error('La actualización no afectó ninguna fila. Esto indica un problema de políticas RLS. Por favor, ejecuta el SQL en supabase_rpc_function.sql en el SQL Editor de Supabase para crear la función RPC necesaria.');
+        }
+        
+        console.log('✅ Update ejecutado directamente:', updatedData[0]);
+      }
+      
+      // Esperar un momento para que la actualización se propague
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Verificar que la actualización se guardó correctamente
+      const { data: verifyOrder, error: verifyError } = await supabase
+        .from('orders')
+        .select('id, status, restaurant_id')
+        .eq('id', order.id)
+        .eq('restaurant_id', CURRENT_RESTAURANT?.id || '')
+        .single();
+      
+      if (verifyError) {
+        console.error("❌ Error verificando orden:", verifyError);
+        throw new Error(`No se pudo verificar la actualización: ${verifyError.message}`);
+      }
+      
+      console.log('✅ Status verificado:', verifyOrder?.status);
+      
+      if (verifyOrder?.status !== 'Pagado') {
+        console.error('❌ El status no se actualizó correctamente. Status actual:', verifyOrder?.status);
+        throw new Error(`El status no se actualizó. Status actual: ${verifyOrder?.status}, esperado: Pagado`);
+      }
 
+      // Liberar la mesa
       if (order.table_id) {
         const { error: tableError } = await supabase
           .from('tables')
@@ -360,18 +502,22 @@ const OrdersPage: React.FC = () => {
           .eq('id', order.table_id)
           .eq('restaurant_id', CURRENT_RESTAURANT?.id || '');
         
-        if (tableError) console.warn("Error parcial al liberar mesa:", tableError);
+        if (tableError) {
+          console.warn("Error parcial al liberar mesa:", tableError);
+        }
       }
 
-      await fetchActiveOrders();
-      alert(`Mesa ${order.tables?.table_number} cerrada correctamente.`);
+      // Refrescar las órdenes activas después de un pequeño delay para que el usuario vea el cambio
+      setTimeout(async () => {
+        await fetchActiveOrders();
+      }, 1500);
+      
+      return true;
 
     } catch (err: any) {
       console.error("Error al cerrar la cuenta:", err);
-      setErrorMsg("No se pudo cerrar la cuenta: " + err.message);
-      alert("No se pudo cerrar la cuenta: " + err.message);
-    } finally {
-      setLoading(false);
+      setErrorMsg("No se pudo cerrar la cuenta: " + (err.message || 'Error desconocido'));
+      return false;
     }
   };
 
@@ -391,10 +537,50 @@ const OrdersPage: React.FC = () => {
           <h1 className="text-4xl font-black text-slate-900 tracking-tighter flex items-center gap-3">
             Kitchen Monitor <BellRing className="text-indigo-600 animate-pulse" size={32} />
           </h1>
-          <p className="text-slate-500 mt-1 font-medium">Operaciones activas en salón y cocina</p>
+          <p className="text-slate-500 mt-1 font-medium">
+            {showClosedOrders ? 'Órdenes cerradas y pagadas' : 'Operaciones activas en salón y cocina'}
+          </p>
         </div>
-        <div className="bg-white px-6 py-2.5 rounded-2xl border border-gray-100 shadow-sm font-black text-indigo-600 text-[10px] uppercase tracking-widest">
-          {orders.length} Mesas Activas
+        <div className="flex items-center gap-4">
+          {/* Toggle Switch */}
+          <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-gray-100 shadow-sm">
+            <button
+              onClick={() => setShowClosedOrders(false)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
+                !showClosedOrders
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-gray-500 hover:text-indigo-600'
+              }`}
+            >
+              <BellRing size={14} /> Abiertas
+            </button>
+            <button
+              onClick={() => setShowClosedOrders(true)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
+                showClosedOrders
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'text-gray-500 hover:text-emerald-600'
+              }`}
+            >
+              <Archive size={14} /> Cerradas
+            </button>
+          </div>
+          <div className={`min-w-[200px] px-6 py-4 rounded-2xl border border-gray-100 shadow-sm ${
+            showClosedOrders 
+              ? 'bg-emerald-50 border-emerald-100' 
+              : 'bg-indigo-50 border-indigo-100'
+          }`}>
+            <div className={`text-3xl font-black tracking-tighter ${
+              showClosedOrders ? 'text-emerald-600' : 'text-indigo-600'
+            }`}>
+              {orders.length}
+            </div>
+            <div className={`text-[10px] font-black uppercase tracking-widest mt-1 ${
+              showClosedOrders ? 'text-emerald-600' : 'text-indigo-600'
+            }`}>
+              {showClosedOrders ? 'Órdenes Cerradas' : 'Mesas Activas'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -420,6 +606,7 @@ const OrdersPage: React.FC = () => {
               onCloseOrder={handleCloseOrder}
               onUpdateBatchStatus={handleUpdateBatchStatus}
               forceExpanded={order.id === expandedOrderId}
+              isClosed={showClosedOrders || order.status === 'Pagado'}
             />
           ))}
         </div>

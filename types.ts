@@ -124,6 +124,6 @@ export interface Table {
   table_number: string;
   capacity: number;
   waiter_id: string | null;
-  status: 'Libre' | 'Ocupada' | 'Reservada';
+  status: 'Libre' | 'Ocupada';
   created_at?: string;
 }

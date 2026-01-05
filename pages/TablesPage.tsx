@@ -14,6 +14,7 @@ interface Waiter {
   id: string;
   nickname: string;
   full_name: string;
+  profile_photo_url?: string;
   is_active: boolean;
 }
 
@@ -22,7 +23,7 @@ const TablesPage: React.FC = () => {
   const [waiters, setWaiters] = useState<Waiter[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [submitting, setSubmitting] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -41,7 +42,52 @@ const TablesPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+
+    // Listener en tiempo real para actualizar estado de mesas cuando se crean/cierran órdenes
+    if (!CURRENT_RESTAURANT?.id) {
+      return;
+    }
+
+    const channel = supabase
+      .channel('tables-status-updates')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'orders',
+        filter: `restaurant_id=eq.${CURRENT_RESTAURANT.id}`
+      }, (payload) => {
+        // Cuando se crea una orden, marcar la mesa como ocupada
+        const newOrder = payload.new;
+        if (newOrder.table_id && (newOrder.status === 'ABIERTO' || newOrder.status === 'SOLICITADO')) {
+          setTables(prev => prev.map(table => 
+            table.id === newOrder.table_id 
+              ? { ...table, status: 'Ocupada' as const }
+              : table
+          ));
+        }
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'orders',
+        filter: `restaurant_id=eq.${CURRENT_RESTAURANT.id}`
+      }, (payload) => {
+        // Cuando se cierra una orden (status = 'Pagado'), liberar la mesa
+        const updatedOrder = payload.new;
+        if (updatedOrder.status === 'Pagado' && updatedOrder.table_id) {
+          setTables(prev => prev.map(table => 
+            table.id === updatedOrder.table_id 
+              ? { ...table, status: 'Libre' as const }
+              : table
+          ));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [CURRENT_RESTAURANT?.id]);
 
   const fetchData = async () => {
     if (!isSupabaseConfigured || !CURRENT_RESTAURANT?.id) {
@@ -51,17 +97,49 @@ const TablesPage: React.FC = () => {
     try {
       setLoading(true);
       
+      // Obtener mesas
       const { data: tablesData, error: tablesError } = await supabase
         .from('tables')
         .select('*')
         .eq('restaurant_id', CURRENT_RESTAURANT.id);
       
       if (tablesError) throw tablesError;
-      setTables(tablesData || []);
+
+      // Obtener órdenes abiertas para determinar qué mesas están ocupadas
+      const { data: openOrders, error: ordersError } = await supabase
+        .from('orders')
+        .select('table_id, status')
+        .eq('restaurant_id', CURRENT_RESTAURANT.id)
+        .in('status', ['ABIERTO', 'SOLICITADO']);
+
+      if (ordersError) {
+        console.warn("Error al obtener órdenes abiertas:", ordersError);
+      }
+
+      // Crear un Set con los IDs de mesas que tienen órdenes abiertas
+      const occupiedTableIds = new Set(
+        (openOrders || []).map(order => order.table_id).filter(Boolean)
+      );
+
+      // Actualizar el estado de las mesas según las órdenes abiertas
+      const tablesWithStatus = (tablesData || []).map(table => {
+        const isOccupied = occupiedTableIds.has(table.id);
+        // Normalizar estados antiguos a los nuevos estados válidos
+        const normalizedStatus = table.status === 'Reservada' || table.status === 'Disponible' || !table.status 
+          ? 'Libre' 
+          : (table.status === 'Ocupada' ? 'Ocupada' : 'Libre');
+        
+        return {
+          ...table,
+          status: isOccupied ? 'Ocupada' as const : (normalizedStatus === 'Ocupada' ? 'Ocupada' as const : 'Libre' as const)
+        };
+      });
+
+      setTables(tablesWithStatus);
 
       const { data: waitersData, error: waitersError } = await supabase
         .from('waiters')
-        .select('id, nickname, full_name, is_active')
+        .select('id, nickname, full_name, profile_photo_url, is_active')
         .eq('restaurant_id', CURRENT_RESTAURANT.id)
         .eq('is_active', true);
       
@@ -307,39 +385,108 @@ const TablesPage: React.FC = () => {
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
-           {[...Array(12)].map((_, i) => <div key={i} className="h-40 bg-white rounded-3xl animate-pulse border border-gray-100"></div>)}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+           {[...Array(8)].map((_, i) => <div key={i} className="h-48 bg-white rounded-3xl animate-pulse border border-gray-100"></div>)}
         </div>
       ) : sortedAndFilteredTables.length > 0 ? (
-        <div className={viewMode === 'grid' ? "grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-6" : "space-y-3"}>
-           {sortedAndFilteredTables.map(table => (
-             <div key={table.id} className={`group relative bg-white rounded-[2rem] border transition-all duration-500 overflow-hidden ${viewMode === 'grid' ? 'p-8 flex flex-col items-center text-center shadow-sm hover:shadow-2xl hover:border-indigo-100' : 'p-4 flex items-center justify-between border-gray-100 hover:bg-gray-50'}`}>
-                <div className={`flex items-center justify-center rounded-2xl font-black transition-all ${viewMode === 'grid' ? 'w-16 h-16 text-2xl mb-4 bg-gray-50 text-gray-900 group-hover:bg-indigo-600 group-hover:text-white group-hover:shadow-lg group-hover:shadow-indigo-100' : 'w-10 h-10 text-sm bg-gray-100 text-gray-900'}`}>
-                   {table.table_number}
+        <div className={viewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" : "space-y-3"}>
+           {sortedAndFilteredTables.map(table => {
+             const assignedWaiter = table.waiter_id ? waiters.find(w => w.id === table.waiter_id) : null;
+             return (
+             <div key={table.id} className={`group relative bg-white rounded-[2.5rem] border-2 transition-all duration-500 overflow-hidden ${viewMode === 'grid' ? 'p-8 shadow-md hover:shadow-2xl hover:border-indigo-200 hover:scale-[1.02]' : 'p-5 flex items-center justify-between border-gray-100 hover:bg-gray-50'}`}>
+                {/* Header con número de mesa */}
+                <div className={`flex items-center justify-between mb-6 ${viewMode === 'list' ? 'mb-0' : ''}`}>
+                   <div className={`flex items-center justify-center rounded-2xl font-black transition-all ${viewMode === 'grid' ? 'w-20 h-20 text-3xl bg-gradient-to-br from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-100' : 'w-14 h-14 text-xl bg-indigo-600 text-white'}`}>
+                      {table.table_number}
+                   </div>
+                   {viewMode === 'grid' && (
+                      <div className="flex items-center gap-2">
+                         <button onClick={() => setSelectedTableForQR(table)} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm opacity-0 group-hover:opacity-100"><QrCode size={18}/></button>
+                         <button onClick={() => deleteTable(table.id, table.table_number)} className="p-2.5 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm opacity-0 group-hover:opacity-100"><Trash2 size={18}/></button>
+                      </div>
+                   )}
                 </div>
                 
-                <div className={viewMode === 'list' ? 'flex-1 ml-6 flex items-center gap-10' : ''}>
-                   <div className="flex flex-col items-center md:items-start">
-                      <div className="flex items-center gap-2 text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">
-                         <Users size={12} /> Cap: {table.capacity}
+                {/* Información de la mesa */}
+                <div className={`space-y-4 ${viewMode === 'list' ? 'flex-1 ml-6 flex items-center gap-8' : ''}`}>
+                   {/* Capacidad */}
+                   <div className={`flex items-center gap-3 ${viewMode === 'list' ? '' : 'bg-gray-50 rounded-xl p-3'}`}>
+                      <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+                         <Users size={18} className="text-indigo-600" />
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
-                         {table.waiter_id ? (
-                           <>
-                             <User size={12} className="text-indigo-400" />
-                             {waiters.find(w => w.id === table.waiter_id)?.nickname || 'Staff'}
-                           </>
+                      <div>
+                         <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Capacidad</p>
+                         <p className="text-lg font-black text-gray-900">{table.capacity} {table.capacity === 1 ? 'persona' : 'personas'}</p>
+                      </div>
+                   </div>
+
+                   {/* Mesero asignado */}
+                   <div className={`flex items-center gap-3 ${viewMode === 'list' ? '' : 'bg-gray-50 rounded-xl p-3'}`}>
+                      {table.waiter_id && assignedWaiter ? (
+                         <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-emerald-200 bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                            {assignedWaiter.profile_photo_url ? (
+                               <img 
+                                  src={assignedWaiter.profile_photo_url} 
+                                  alt={assignedWaiter.nickname}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                     // Si la imagen falla, mostrar icono por defecto
+                                     const parent = e.currentTarget.parentElement;
+                                     if (parent) {
+                                        parent.innerHTML = '<svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>';
+                                     }
+                                  }}
+                               />
+                            ) : (
+                               <User size={18} className="text-emerald-600" />
+                            )}
+                         </div>
+                      ) : (
+                         <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center border-2 border-amber-200 flex-shrink-0">
+                            <AlertTriangle size={18} className="text-amber-600" />
+                         </div>
+                      )}
+                      <div className="flex-1">
+                         <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Mesero</p>
+                         {table.waiter_id && assignedWaiter ? (
+                            <p className="text-base font-bold text-gray-900">
+                               {assignedWaiter.nickname || 'Staff'}
+                            </p>
                          ) : (
-                           <span className="text-amber-500 flex items-center gap-1"><AlertTriangle size={10}/> Sin asignar</span>
+                            <p className="text-sm font-bold text-amber-600">Sin asignar</p>
                          )}
+                      </div>
+                   </div>
+
+                   {/* Estado */}
+                   <div className={`flex items-center gap-3 ${viewMode === 'list' ? '' : 'bg-gray-50 rounded-xl p-3'}`}>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        table.status === 'Libre' ? 'bg-emerald-100' : 'bg-red-100'
+                      }`}>
+                         {table.status === 'Libre' ? (
+                            <CheckCircle2 size={18} className="text-emerald-600" />
+                         ) : (
+                            <AlertCircle size={18} className="text-red-600" />
+                         )}
+                      </div>
+                      <div>
+                         <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Estado</p>
+                         <p className={`text-base font-bold ${
+                           table.status === 'Libre' ? 'text-emerald-600' : 'text-red-600'
+                         }`}>
+                            {table.status}
+                         </p>
                       </div>
                    </div>
                 </div>
 
-                <div className={`flex items-center gap-2 ${viewMode === 'grid' ? 'mt-6 opacity-0 group-hover:opacity-100 transition-all duration-300' : ''}`}>
-                   <button onClick={() => setSelectedTableForQR(table)} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm"><QrCode size={16}/></button>
-                   <button onClick={() => deleteTable(table.id, table.table_number)} className="p-2.5 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm"><Trash2 size={16}/></button>
-                </div>
+                {/* Botones en modo lista */}
+                {viewMode === 'list' && (
+                   <div className="flex items-center gap-2">
+                      <button onClick={() => setSelectedTableForQR(table)} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm"><QrCode size={18}/></button>
+                      <button onClick={() => deleteTable(table.id, table.table_number)} className="p-3 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm"><Trash2 size={18}/></button>
+                   </div>
+                )}
              </div>
            ))}
         </div>
