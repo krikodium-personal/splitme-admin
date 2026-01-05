@@ -488,7 +488,8 @@ const TablesPage: React.FC = () => {
                    </div>
                 )}
              </div>
-           ))}
+             );
+           })}
         </div>
       ) : (
         <div className="py-32 flex flex-col items-center justify-center bg-white rounded-[3rem] border border-dashed border-gray-200 text-center">
