@@ -82,23 +82,58 @@ const BatchCard: React.FC<{
           {sortedItems.map((item: any) => {
             const menuItem = Array.isArray(item.menu_items) ? item.menu_items[0] : item.menu_items;
             const itemName = menuItem?.name || 'Cargando...';
+            const unitPrice = item.unit_price || 0;
+            const subtotal = unitPrice * (item.quantity || 1);
 
             return (
               <div key={item.id} className="flex justify-between items-start py-2 border-b border-slate-50 last:border-0">
-                <div className="flex gap-3">
+                <div className="flex gap-3 flex-1">
                   <span className="text-xs font-black text-indigo-700 bg-indigo-50 w-6 h-6 rounded-lg flex items-center justify-center border border-indigo-100">
                     {item.quantity}
                   </span>
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm font-bold text-slate-800 leading-tight">
                       {itemName}
                     </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-bold text-slate-500">
+                        ${Number(unitPrice).toLocaleString('es-CL')} c/u
+                      </span>
+                      {item.quantity > 1 && (
+                        <>
+                          <span className="text-[9px] text-slate-300">×</span>
+                          <span className="text-[10px] font-bold text-slate-500">
+                            {item.quantity}
+                          </span>
+                          <span className="text-[9px] text-slate-300">=</span>
+                          <span className="text-[10px] font-black text-indigo-600">
+                            ${Number(subtotal).toLocaleString('es-CL')}
+                          </span>
+                        </>
+                      )}
+                    </div>
                     {item.notes && (
-                      <div className="flex items-center gap-1.5 mt-1 text-[10px] text-amber-700 font-medium italic bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-100/50">
+                      <div className="flex items-center gap-1.5 mt-1.5 text-[10px] text-amber-700 font-medium italic bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-100/50">
                         <MessageSquare size={10} /> {item.notes}
                       </div>
                     )}
                   </div>
+                </div>
+                <div className="text-right ml-3">
+                  {item.quantity === 1 ? (
+                    <span className="text-sm font-black text-indigo-600">
+                      ${Number(unitPrice).toLocaleString('es-CL')}
+                    </span>
+                  ) : (
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-slate-400 line-through">
+                        ${Number(unitPrice).toLocaleString('es-CL')}
+                      </span>
+                      <div className="text-sm font-black text-indigo-600">
+                        ${Number(subtotal).toLocaleString('es-CL')}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );
