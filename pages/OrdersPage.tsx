@@ -17,13 +17,15 @@ const BatchCard: React.FC<{
   const [isExpanded, setIsExpanded] = useState(batch.status !== 'SERVIDO');
 
   const statusConfig = {
-    'PENDIENTE': { color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Clock, next: 'EN PREPARACIÓN', label: 'Preparar' },
-    'EN PREPARACIÓN': { color: 'bg-amber-100 text-amber-800 border-amber-200', icon: Play, next: 'LISTO', label: 'Terminar' },
-    'LISTO': { color: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: Check, next: 'SERVIDO', label: 'Servir' },
+    'CREADO': { color: 'bg-gray-100 text-gray-600 border-gray-200', icon: Clock, next: null, label: 'En creación' },
+    'ENVIADO': { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: Play, next: 'PREPARANDO', label: 'Comenzar Preparación' },
+    'PREPARANDO': { color: 'bg-amber-100 text-amber-800 border-amber-200', icon: Clock, next: 'LISTO', label: 'Marcar Listo' },
+    'LISTO': { color: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: Check, next: 'SERVIDO', label: 'Marcar Servido' },
     'SERVIDO': { color: 'bg-emerald-50 text-emerald-600 border-emerald-100', icon: CheckCircle2, next: null, label: 'Entregado' }
   };
 
-  const currentStatus = statusConfig[batch.status as keyof typeof statusConfig] || statusConfig['PENDIENTE'];
+  // Estado por defecto: si no existe en config, usar ENVIADO (estado inicial después de CREADO)
+  const currentStatus = statusConfig[batch.status as keyof typeof statusConfig] || statusConfig['ENVIADO'];
   
   const sortedItems = [...(batch.order_items || [])].sort((a, b) => 
     new Date(a.created_at).getTime() - new Date(b.created_at).getTime()

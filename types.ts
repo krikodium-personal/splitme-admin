@@ -93,7 +93,7 @@ export interface OrderItem {
 export interface OrderBatch {
   id: string;
   order_id: string;
-  status: 'PENDIENTE' | 'EN PREPARACIÓN' | 'LISTO' | 'SERVIDO';
+  status: 'CREADO' | 'ENVIADO' | 'PREPARANDO' | 'LISTO' | 'SERVIDO';
   created_at: string;
   items: OrderItem[];
 }
