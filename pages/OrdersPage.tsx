@@ -156,7 +156,8 @@ const OrderGroupCard: React.FC<{
   const [isOrderClosed, setIsOrderClosed] = useState(propIsClosed);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
-  const batches = order.order_batches || [];
+  // Filtrar lotes: no mostrar los que están en estado "CREADO"
+  const batches = (order.order_batches || []).filter((batch: any) => batch.status !== 'CREADO');
 
   // Sincronizar con forceExpanded cuando cambie externamente (nuevo pedido)
   useEffect(() => {
