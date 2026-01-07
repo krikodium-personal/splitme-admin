@@ -27,9 +27,9 @@ export const setGlobalRestaurant = (r: Restaurant) => {
 export interface PaymentConfig {
   id: string;
   restaurant_id: string;
-  access_token: string | null;
-  public_key: string | null;
-  mp_user_id: string | null;
+  token_cbu: string | null; // Para MP: access token, Para Transferencia: CBU
+  key_alias: string | null; // Para MP: public key, Para Transferencia: alias
+  user_account: string | null; // Para MP: user ID (opcional), Para Transferencia: "Banco|NroCuenta"
   provider: string;
   is_active: boolean;
   created_at: string;

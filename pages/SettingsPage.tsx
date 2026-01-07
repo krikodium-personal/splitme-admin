@@ -56,6 +56,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
+  // Estados para Transferencia
+  const [transferConfig, setTransferConfig] = useState<PaymentConfig | null>(null);
+  const [transferCBU, setTransferCBU] = useState('');
+  const [transferAccountNumber, setTransferAccountNumber] = useState('');
+  const [transferAlias, setTransferAlias] = useState('');
+  const [transferBank, setTransferBank] = useState('');
+  const [savingTransfer, setSavingTransfer] = useState(false);
+  const [transferMessage, setTransferMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+  const bankOptions = [
+    'Banco Galicia',
+    'Banco Macro',
+    'Banco Provincia',
+    'Banco Ciudad',
+    'Banco Rio'
+  ];
+
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState>({
     show: false,
     id: null,
@@ -82,19 +99,37 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const fetchPaymentConfig = async () => {
     if (!restaurant?.id) return;
     try {
-      const { data, error } = await supabase
+      // Cargar configuración de Mercado Pago
+      const { data: mpData, error: mpError } = await supabase
         .from('payment_configs')
-        .select('id, restaurant_id, access_token, public_key, mp_user_id, provider, is_active, created_at')
+        .select('id, restaurant_id, token_cbu, key_alias, user_account, provider, is_active, created_at')
         .eq('restaurant_id', restaurant.id)
         .eq('provider', 'mercadopago')
         .maybeSingle();
       
-      if (error) throw error;
-      if (data) {
-        setPaymentConfig(data);
-        setManualPublicKey(data.public_key || '');
-        setManualAccessToken(data.access_token || '');
-        setManualMpUserId(data.mp_user_id || '');
+      if (mpError) throw mpError;
+      if (mpData) {
+        setPaymentConfig(mpData);
+        setManualPublicKey(mpData.key_alias || ''); // key_alias para public key de MP
+        setManualAccessToken(mpData.token_cbu || ''); // token_cbu para access token de MP
+        setManualMpUserId(mpData.user_account || ''); // user_account para user ID de MP
+      }
+
+      // Cargar configuración de Transferencia (buscar por cualquier banco de la lista)
+      const { data: transferData, error: transferError } = await supabase
+        .from('payment_configs')
+        .select('id, restaurant_id, token_cbu, key_alias, user_account, provider, is_active, created_at')
+        .eq('restaurant_id', restaurant.id)
+        .in('provider', bankOptions)
+        .maybeSingle();
+      
+      if (transferError) throw transferError;
+      if (transferData) {
+        setTransferConfig(transferData);
+        setTransferCBU(transferData.token_cbu || ''); // token_cbu contiene el CBU
+        setTransferAccountNumber(transferData.user_account || ''); // user_account contiene el Nro de cuenta
+        setTransferAlias(transferData.key_alias || ''); // key_alias contiene el alias
+        setTransferBank(transferData.provider || ''); // provider contiene el nombre del banco
       }
     } catch (err: any) {
       console.error("Error al cargar config de pagos:", err.message || err);
@@ -113,22 +148,37 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
     setPaymentMessage(null);
 
     try {
+      // Verificar si ya existe una configuración de Mercado Pago para este restaurante
+      const { data: existingMP } = await supabase
+        .from('payment_configs')
+        .select('id, provider')
+        .eq('restaurant_id', restaurant.id)
+        .eq('provider', 'mercadopago')
+        .maybeSingle();
+
+      if (existingMP) {
+        setPaymentMessage({ 
+          type: 'error', 
+          text: 'Ya existe una configuración de Mercado Pago para este restaurante. Por favor, elimina la configuración existente primero usando el botón "Eliminar Credenciales".' 
+        });
+        setSavingPayment(false);
+        return;
+      }
+
       // Objeto de datos limpio para el upsert basado en la restricción 'restaurant_id'
       const payload = {
         restaurant_id: restaurant.id,
-        access_token: manualAccessToken.trim(),
-        public_key: manualPublicKey.trim(),
-        mp_user_id: manualMpUserId.trim() || null,
+        token_cbu: manualAccessToken.trim(), // token_cbu para access token de MP
+        key_alias: manualPublicKey.trim(), // key_alias para public key de MP
+        user_account: manualMpUserId.trim() || null, // user_account para user ID de MP (opcional)
         provider: 'mercadopago',
         is_active: true
       };
 
+      // Intentar insertar (no podemos actualizar sin políticas RLS)
       const { data, error } = await supabase
         .from('payment_configs')
-        .upsert(payload, { 
-          onConflict: 'restaurant_id',
-          ignoreDuplicates: false 
-        })
+        .insert(payload)
         .select()
         .single();
 
@@ -184,6 +234,129 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       alert("Error al desvincular: " + (err.message || "Error desconocido"));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // Handler para paste sin formato
+  const handlePastePlainText = (e: React.ClipboardEvent<HTMLInputElement>, setter: (value: string) => void) => {
+    e.preventDefault();
+    const pastedText = e.clipboardData.getData('text/plain');
+    setter(pastedText);
+  };
+
+  // Handler para CBU que solo acepta números
+  const handleCBUChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.replace(/\D/g, ''); // Solo números
+    if (value.length <= 22) {
+      setTransferCBU(value);
+    }
+  };
+
+  // Handler para paste en CBU
+  const handleCBUPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedText = e.clipboardData.getData('text/plain').replace(/\D/g, ''); // Solo números
+    if (pastedText.length <= 22) {
+      setTransferCBU(pastedText);
+    } else {
+      setTransferCBU(pastedText.substring(0, 22));
+    }
+  };
+
+  const handleSaveTransferConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!restaurant?.id) return;
+
+    // Validar banco seleccionado
+    if (!transferBank.trim()) {
+      setTransferMessage({ type: 'error', text: 'Por favor, selecciona un banco.' });
+      return;
+    }
+
+    // Validar CBU
+    if (transferCBU.trim().length !== 22) {
+      setTransferMessage({ type: 'error', text: 'El CBU debe tener exactamente 22 caracteres numéricos.' });
+      return;
+    }
+
+    setSavingTransfer(true);
+    setTransferMessage(null);
+
+    try {
+      // Verificar si ya existe una configuración de transferencia (cualquier banco) para este restaurante
+      const { data: existingTransfer } = await supabase
+        .from('payment_configs')
+        .select('id, provider')
+        .eq('restaurant_id', restaurant.id)
+        .in('provider', bankOptions)
+        .maybeSingle();
+
+      if (existingTransfer) {
+        setTransferMessage({ 
+          type: 'error', 
+          text: `Ya existe una configuración de Transferencia (${existingTransfer.provider}) para este restaurante. Solo se permite una configuración de Transferencia por restaurante.` 
+        });
+        setSavingTransfer(false);
+        return;
+      }
+
+      // Guardar el banco en provider y el número de cuenta en user_account
+      const payload = {
+        restaurant_id: restaurant.id,
+        token_cbu: transferCBU.trim(), // token_cbu contiene el CBU
+        key_alias: transferAlias.trim(), // key_alias contiene el alias
+        user_account: transferAccountNumber.trim(), // user_account contiene el Nro de cuenta
+        provider: transferBank.trim(), // provider contiene el nombre del banco
+        is_active: true
+      };
+
+      // Intentar insertar nuevo registro (no podemos actualizar sin políticas RLS)
+      const { data, error } = await supabase
+        .from('payment_configs')
+        .insert(payload)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Error al guardar config de transferencia:", error);
+        if (error.message?.toLowerCase().includes('schema cache')) {
+           setTransferMessage({ 
+             type: 'error', 
+             text: 'La estructura de la base de datos ha cambiado. Por favor, pulsa F5 o recarga la página para sincronizar el nuevo esquema.' 
+           });
+           setSavingTransfer(false);
+           return;
+        }
+        throw error;
+      }
+      
+      setTransferConfig(data);
+      setTransferMessage({ type: 'success', text: 'Cuenta de transferencia guardada correctamente.' });
+      setErrorMsg(null);
+      
+      // Limpiar formulario después de guardar
+      setTransferCBU('');
+      setTransferAccountNumber('');
+      setTransferAlias('');
+      setTransferBank('');
+      
+      fetchPaymentConfig();
+    } catch (err: any) {
+      console.error("Error al guardar transferencia:", err);
+      // Manejo para errores de restricción única (por si la restricción no es compuesta)
+      if (err.message?.includes('duplicate key') || err.message?.includes('unique constraint')) {
+        setTransferMessage({ 
+          type: 'error', 
+          text: 'Error: La restricción única en la base de datos no permite múltiples métodos de pago. Asegúrate de que la restricción única sea compuesta (restaurant_id, provider) en lugar de solo restaurant_id.' 
+        });
+      } else {
+        setTransferMessage({ 
+          type: 'error', 
+          text: `Error al guardar: ${err.message || 'No se pudo guardar la configuración.'}` 
+        });
+      }
+    } finally {
+      setSavingTransfer(false);
     }
   };
 
@@ -440,7 +613,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
             onClick={() => setActiveTab('payments')}
             className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'payments' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
            >
-            <CreditCard size={14} /> Pasarela Pagos
+            <CreditCard size={14} /> Medios de Pago
            </button>
         </div>
       </div>
@@ -615,7 +788,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
               <div className="relative z-10">
                 <div className="flex items-center gap-3 mb-2">
                   <CreditCard size={24} />
-                  <h2 className="text-2xl font-black tracking-tight">Pasarela de Pagos</h2>
+                  <h2 className="text-2xl font-black tracking-tight">Medios de Pago</h2>
                 </div>
                 <p className="text-white/80 font-medium text-sm">Configura las credenciales de Mercado Pago para recibir cobros automáticos</p>
               </div>
@@ -710,7 +883,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         className="px-10 py-5 bg-[#009EE3] text-white rounded-2xl font-black shadow-2xl shadow-blue-100 hover:bg-[#0089C7] transition-all flex items-center gap-3 disabled:opacity-50 uppercase tracking-widest text-xs active:scale-95"
                       >
                         {savingPayment ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-                        {savingPayment ? 'Guardando...' : 'Guardar Configuración'}
+                        {savingPayment ? 'Guardando...' : 'Guardar Cuenta MercadoPago'}
                       </button>
                     </div>
                   </form>
@@ -766,6 +939,128 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                            {paymentConfig ? 'Vinculado y Activo' : 'Sin Configurar'}
                         </span>
                      </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sección de Transferencia */}
+              <div className="mt-12 pt-12 border-t border-gray-200">
+                <div className="bg-white rounded-[3rem] border border-gray-100 shadow-xl overflow-hidden">
+                  <div className="bg-emerald-600 px-12 py-10 border-b border-white/10 flex items-center justify-between text-white relative overflow-hidden">
+                    <div className="relative z-10">
+                      <div className="flex items-center gap-3 mb-2">
+                        <CreditCard size={24} />
+                        <h2 className="text-2xl font-black tracking-tight">Transferencia</h2>
+                      </div>
+                      <p className="text-white/80 font-medium text-sm">Configura los datos bancarios para recibir transferencias</p>
+                    </div>
+                    <div className="absolute top-0 right-0 p-10 opacity-10 rotate-12">
+                      <CreditCard size={120} fill="white" />
+                    </div>
+                  </div>
+
+                  <div className="p-12">
+                    <form onSubmit={handleSaveTransferConfig} className="space-y-8 bg-gray-50/50 p-10 rounded-[2.5rem] border border-gray-100">
+                      <div className="flex items-center gap-3 mb-2">
+                        <ShieldCheck className="text-emerald-600" size={20} />
+                        <h3 className="text-lg font-black text-gray-900 tracking-tight">Datos Bancarios</h3>
+                      </div>
+
+                      <div className="space-y-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Banco *</label>
+                          <div className="relative">
+                            <CreditCard size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <select
+                              required
+                              value={transferBank}
+                              onChange={e => setTransferBank(e.target.value)}
+                              className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-all appearance-none cursor-pointer"
+                            >
+                              <option value="">Selecciona un banco</option>
+                              {bankOptions.map((bank) => (
+                                <option key={bank} value={bank}>
+                                  {bank}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">CBU *</label>
+                          <div className="relative">
+                            <Key size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input 
+                              required 
+                              type="text"
+                              inputMode="numeric"
+                              value={transferCBU} 
+                              onChange={handleCBUChange}
+                              onPaste={handleCBUPaste}
+                              placeholder="0000000000000000000000"
+                              maxLength={22}
+                              className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                            />
+                          </div>
+                          {transferCBU.length > 0 && transferCBU.length !== 22 && (
+                            <p className="text-[9px] text-amber-600 font-medium ml-1">
+                              El CBU debe tener exactamente 22 caracteres ({transferCBU.length}/22)
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Nro de Cuenta *</label>
+                          <div className="relative">
+                            <User size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input 
+                              required 
+                              value={transferAccountNumber} 
+                              onChange={e => setTransferAccountNumber(e.target.value)}
+                              onPaste={e => handlePastePlainText(e, setTransferAccountNumber)}
+                              placeholder="Número de cuenta bancaria"
+                              className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Alias *</label>
+                          <div className="relative">
+                            <LinkIcon size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input 
+                              required 
+                              value={transferAlias} 
+                              onChange={e => setTransferAlias(e.target.value)}
+                              onPaste={e => handlePastePlainText(e, setTransferAlias)}
+                              placeholder="Alias bancario"
+                              className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {transferMessage && (
+                        <div className={`p-5 rounded-2xl flex items-center gap-3 border-2 animate-in slide-in-from-bottom-2 ${
+                          transferMessage.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-rose-50 border-rose-100 text-rose-700'
+                        }`}>
+                          {transferMessage.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                          <p className="font-bold text-xs">{transferMessage.text}</p>
+                        </div>
+                      )}
+
+                      <div className="flex justify-end pt-4">
+                        <button 
+                          type="submit" 
+                          disabled={savingTransfer}
+                          className="px-10 py-5 bg-emerald-600 text-white rounded-2xl font-black shadow-2xl shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center gap-3 disabled:opacity-50 uppercase tracking-widest text-xs active:scale-95"
+                        >
+                          {savingTransfer ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                          {savingTransfer ? 'Guardando...' : 'Guardar Cuenta Transferencia'}
+                        </button>
+                      </div>
+                    </form>
                   </div>
                 </div>
               </div>

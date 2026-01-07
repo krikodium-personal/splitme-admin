@@ -16,6 +16,13 @@ const BatchCard: React.FC<{
 }> = ({ batch, batchIndex, onUpdateBatchStatus }) => {
   const [isExpanded, setIsExpanded] = useState(batch.status !== 'SERVIDO');
 
+  // Colapsar automáticamente cuando el batch se marca como SERVIDO
+  useEffect(() => {
+    if (batch.status === 'SERVIDO') {
+      setIsExpanded(false);
+    }
+  }, [batch.status]);
+
   const statusConfig = {
     'CREADO': { color: 'bg-gray-100 text-gray-600 border-gray-200', icon: Clock, next: null, label: 'En creación' },
     'ENVIADO': { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: Play, next: 'PREPARANDO', label: 'Comenzar Preparación' },
@@ -52,11 +59,13 @@ const BatchCard: React.FC<{
           <div>
             <div className="flex items-center gap-2">
               <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">
-                {batch.status === 'SERVIDO' ? 'Lote Servido' : `Lote ${batchIndex + 1}`}
+                {batch.status === 'SERVIDO' ? `ENVÍO # ${batchIndex + 1} SERVIDO` : `ENVÍO # ${batchIndex + 1}`}
               </h4>
-              <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border transition-colors ${currentStatus.color}`}>
-                {batch.status}
-              </span>
+              {batch.status !== 'SERVIDO' && (
+                <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border transition-colors ${currentStatus.color}`}>
+                  {batch.status}
+                </span>
+              )}
             </div>
             <p className="text-[9px] text-slate-500 font-bold flex items-center gap-1 mt-0.5">
               <Timer size={10} /> {new Date(batch.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -68,7 +77,15 @@ const BatchCard: React.FC<{
           {currentStatus.next && (
             <button 
               onClick={() => onUpdateBatchStatus(batch.id, currentStatus.next!)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm active:scale-95"
+              className={`flex items-center gap-2 px-3 py-1.5 text-white rounded-xl font-black text-[9px] uppercase tracking-widest transition-all shadow-sm active:scale-95 ${
+                batch.status === 'ENVIADO' 
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : batch.status === 'PREPARANDO'
+                  ? 'bg-indigo-600 hover:bg-indigo-700'
+                  : batch.status === 'LISTO'
+                  ? 'bg-green-600 hover:bg-green-700'
+                  : 'bg-indigo-600 hover:bg-indigo-700'
+              }`}
             >
               <currentStatus.icon size={10} /> {currentStatus.label}
             </button>
@@ -304,14 +321,88 @@ const OrderGroupCard: React.FC<{
           )}
         </div>
 
-        <div className="px-8 py-5 bg-slate-50/50 border-t border-gray-100 flex justify-between items-center">
-           <div>
+        <div className="px-8 py-5 bg-slate-50/50 border-t border-gray-100">
+          <div className="flex justify-between items-center mb-4">
+            <div>
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Total Acumulado</p>
               <p className="text-2xl font-black text-indigo-600 tracking-tighter">${Number(order.total_amount).toLocaleString('es-CL')}</p>
-           </div>
-           <div className="px-4 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-indigo-100">
+            </div>
+            <div className="px-4 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-indigo-100">
               {batches.length} {batches.length === 1 ? 'Envío' : 'Envíos'}
-           </div>
+            </div>
+          </div>
+          
+          {/* Detalle de división de pago por comensal */}
+          {order.order_guests && order.order_guests.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">División de Pago</p>
+              <div className="space-y-2">
+                {order.order_guests.map((guest: any) => {
+                  // Verificar si el pago está completado (puede ser 'completed', 'paid', 'approved', etc.)
+                  const paymentStatus = guest.payment?.status?.toLowerCase() || '';
+                  const isPaidByPayment = guest.payment && (
+                    paymentStatus === 'completed' || 
+                    paymentStatus === 'paid' || 
+                    paymentStatus === 'approved' ||
+                    paymentStatus === 'success'
+                  );
+                  // También verificar el campo paid de order_guests
+                  const isPaidManually = guest.paid === true;
+                  const isPaid = isPaidByPayment || isPaidManually;
+                  
+                  // Obtener payment_method desde order_guests (no desde payments)
+                  const paymentMethod = guest.payment_method || null;
+                  const guestTotal = guest.individual_amount || 0;
+                  const needsManualPayment = paymentMethod && (paymentMethod.toLowerCase() === 'efectivo' || paymentMethod.toLowerCase() === 'transferencia');
+                  
+                  return (
+                    <div 
+                      key={guest.id} 
+                      className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-100"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="text-sm font-black text-slate-900">{guest.name || 'Sin nombre'}</p>
+                          <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase ${
+                            isPaid 
+                              ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
+                              : 'bg-amber-100 text-amber-700 border border-amber-200'
+                          }`}>
+                            {isPaid ? 'Pagado' : 'Pendiente'}
+                          </span>
+                        </div>
+                        {paymentMethod && (
+                          <p className="text-[9px] text-slate-500 font-medium">
+                            Método: <span className="font-black text-slate-700 capitalize">{paymentMethod}</span>
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 ml-4">
+                        <div className="text-right">
+                          <p className="text-lg font-black text-indigo-600">
+                            ${Number(guestTotal).toLocaleString('es-CL')}
+                          </p>
+                          {paymentMethod && (
+                            <p className="text-[9px] text-slate-500 font-medium capitalize">
+                              {paymentMethod}
+                            </p>
+                          )}
+                        </div>
+                        {needsManualPayment && !isPaidManually && (
+                          <button
+                            onClick={() => handleMarkGuestAsPaid(guest.id)}
+                            className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-sm active:scale-95 whitespace-nowrap"
+                          >
+                            Marcar Pagado
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -402,6 +493,7 @@ const OrdersPage: React.FC = () => {
       if (!ordersData) { setOrders([]); return; }
 
       const batchIds = ordersData.flatMap(order => (order.order_batches || []).map((b: any) => b.id));
+      const orderIds = ordersData.map(order => order.id);
 
       let itemsData: any[] = [];
       if (batchIds.length > 0) {
@@ -411,6 +503,28 @@ const OrdersPage: React.FC = () => {
           .in('batch_id', batchIds);
         if (itemsError) throw itemsError;
         itemsData = data || [];
+      }
+
+      // Obtener order_guests para cada orden
+      let guestsData: any[] = [];
+      if (orderIds.length > 0) {
+        const { data: guests, error: guestsError } = await supabase
+          .from('order_guests')
+          .select('*')
+          .in('order_id', orderIds);
+        if (guestsError) throw guestsError;
+        guestsData = guests || [];
+      }
+
+      // Obtener payments para cada orden
+      let paymentsData: any[] = [];
+      if (orderIds.length > 0) {
+        const { data: payments, error: paymentsError } = await supabase
+          .from('payments')
+          .select('*')
+          .in('order_id', orderIds);
+        if (paymentsError) throw paymentsError;
+        paymentsData = payments || [];
       }
 
       const processedOrders = ordersData.map(order => {
@@ -428,9 +542,23 @@ const OrdersPage: React.FC = () => {
         
         const lastActivity = Math.max(new Date(order.created_at).getTime(), latestBatchTime);
 
+        // Obtener guests y payments para esta orden
+        const orderGuests = guestsData.filter(guest => guest.order_id === order.id);
+        const orderPayments = paymentsData.filter(payment => payment.order_id === order.id);
+
+        // Combinar guests con sus payments
+        const guestsWithPayments = orderGuests.map(guest => {
+          const guestPayment = orderPayments.find(p => p.guest_id === guest.id);
+          return {
+            ...guest,
+            payment: guestPayment || null
+          };
+        });
+
         return {
           ...order,
           order_batches: orderBatches,
+          order_guests: guestsWithPayments,
           lastActivity
         };
       });
@@ -449,13 +577,34 @@ const OrdersPage: React.FC = () => {
 
   const handleUpdateBatchStatus = async (batchId: string, newStatus: string) => {
     try {
+      const updateData: any = { status: newStatus };
+      
+      // Si el nuevo estado es SERVIDO, guardar el timestamp
+      if (newStatus === 'SERVIDO') {
+        updateData.served_at = new Date().toISOString();
+      }
+      
       const { error } = await supabase
         .from('order_batches')
-        .update({ status: newStatus })
+        .update(updateData)
         .eq('id', batchId);
       if (error) throw error;
     } catch (err: any) {
       alert("Error: " + err.message);
+    }
+  };
+
+  const handleMarkGuestAsPaid = async (guestId: string) => {
+    try {
+      const { error } = await supabase
+        .from('order_guests')
+        .update({ paid: true })
+        .eq('id', guestId);
+      if (error) throw error;
+      // Refrescar las órdenes para mostrar el cambio
+      fetchActiveOrders();
+    } catch (err: any) {
+      alert("Error al marcar como pagado: " + err.message);
     }
   };
 
