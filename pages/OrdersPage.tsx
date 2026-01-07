@@ -167,9 +167,11 @@ const OrderGroupCard: React.FC<{
   order: any, 
   onCloseOrder: (order: any) => Promise<boolean>,
   onUpdateBatchStatus: (batchId: string, newStatus: string) => void,
+  onMarkGuestAsPaid: (guestId: string) => void,
+  markingGuestAsPaid: string | null,
   forceExpanded?: boolean,
   isClosed?: boolean
-}> = ({ order, onCloseOrder, onUpdateBatchStatus, forceExpanded = false, isClosed: propIsClosed = false }) => {
+}> = ({ order, onCloseOrder, onUpdateBatchStatus, onMarkGuestAsPaid, markingGuestAsPaid, forceExpanded = false, isClosed: propIsClosed = false }) => {
   // Inicializamos colapsado por defecto, a menos que se fuerce la expansión
   const [isCollapsed, setIsCollapsed] = useState(!forceExpanded);
   const [isOrderClosed, setIsOrderClosed] = useState(propIsClosed);
@@ -333,27 +335,27 @@ const OrderGroupCard: React.FC<{
           </div>
           
           {/* Detalle de división de pago por comensal */}
-          {order.order_guests && order.order_guests.length > 0 && (
+          {order.order_guests?.length > 0 && (
             <div className="mt-4 pt-4 border-t border-gray-200">
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">División de Pago</p>
               <div className="space-y-2">
                 {order.order_guests.map((guest: any) => {
-                  // Verificar si el pago está completado (puede ser 'completed', 'paid', 'approved', etc.)
-                  const paymentStatus = guest.payment?.status?.toLowerCase() || '';
-                  const isPaidByPayment = guest.payment && (
-                    paymentStatus === 'completed' || 
-                    paymentStatus === 'paid' || 
-                    paymentStatus === 'approved' ||
-                    paymentStatus === 'success'
-                  );
-                  // También verificar el campo paid de order_guests
-                  const isPaidManually = guest.paid === true;
-                  const isPaid = isPaidByPayment || isPaidManually;
-                  
-                  // Obtener payment_method desde order_guests (no desde payments)
-                  const paymentMethod = guest.payment_method || null;
+                  // Obtener payment_method desde order_guests (en tiempo real)
+                  const paymentMethod = guest.payment_method?.toLowerCase() || null;
                   const guestTotal = guest.individual_amount || 0;
-                  const needsManualPayment = paymentMethod && (paymentMethod.toLowerCase() === 'efectivo' || paymentMethod.toLowerCase() === 'transferencia');
+                  
+                  // Verificar si está pagado: solo usar el campo paid de order_guests
+                  const isPaid = guest.paid === true;
+                  
+                  // Determinar si necesita pago manual (solo efectivo o transferencia)
+                  // Para mercadopago, no mostrar botón, solo esperar que paid=true automáticamente
+                  const needsManualPayment = paymentMethod && (
+                    paymentMethod === 'efectivo' || 
+                    paymentMethod === 'transferencia'
+                  );
+                  
+                  // Para mercadopago, no mostrar botón, solo el estado
+                  const isMercadoPago = paymentMethod === 'mercadopago';
                   
                   return (
                     <div 
@@ -388,13 +390,37 @@ const OrderGroupCard: React.FC<{
                             </p>
                           )}
                         </div>
-                        {needsManualPayment && !isPaidManually && (
-                          <button
-                            onClick={() => handleMarkGuestAsPaid(guest.id)}
-                            className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-sm active:scale-95 whitespace-nowrap"
-                          >
-                            Marcar Pagado
-                          </button>
+                        {/* Mostrar botón solo para efectivo o transferencia */}
+                        {needsManualPayment && (
+                          isPaid ? (
+                            <button
+                              disabled
+                              className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest transition-all shadow-sm whitespace-nowrap cursor-default"
+                            >
+                              PAGADO
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => onMarkGuestAsPaid(guest.id)}
+                              disabled={markingGuestAsPaid === guest.id}
+                              className="px-4 py-2 bg-red-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-red-700 transition-all shadow-sm active:scale-95 whitespace-nowrap disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+                            >
+                              {markingGuestAsPaid === guest.id ? (
+                                <>
+                                  <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                  <span>Procesando...</span>
+                                </>
+                              ) : (
+                                'Marcar Pagado'
+                              )}
+                            </button>
+                          )
+                        )}
+                        {/* Para MercadoPago, no mostrar botón, solo mostrar estado */}
+                        {isMercadoPago && !isPaid && (
+                          <div className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-[9px] uppercase tracking-widest whitespace-nowrap border border-blue-100">
+                            Esperando Pago
+                          </div>
                         )}
                       </div>
                     </div>
@@ -415,6 +441,7 @@ const OrdersPage: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [showClosedOrders, setShowClosedOrders] = useState(false);
+  const [markingGuestAsPaid, setMarkingGuestAsPaid] = useState<string | null>(null);
   const bellAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -452,6 +479,11 @@ const OrdersPage: React.FC = () => {
         schema: 'public', 
         table: 'orders',
         filter: CURRENT_RESTAURANT?.id ? `restaurant_id=eq.${CURRENT_RESTAURANT.id}` : undefined
+      }, fetchActiveOrders)
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'order_guests'
       }, fetchActiveOrders)
       .subscribe();
 
@@ -512,8 +544,11 @@ const OrdersPage: React.FC = () => {
           .from('order_guests')
           .select('*')
           .in('order_id', orderIds);
-        if (guestsError) throw guestsError;
-        guestsData = guests || [];
+        if (guestsError) {
+          console.error('Error al cargar order_guests:', guestsError);
+        } else {
+          guestsData = guests || [];
+        }
       }
 
       // Obtener payments para cada orden
@@ -576,6 +611,11 @@ const OrdersPage: React.FC = () => {
   };
 
   const handleUpdateBatchStatus = async (batchId: string, newStatus: string) => {
+    if (!batchId || !newStatus) {
+      alert('Error: Datos inválidos para actualizar el batch');
+      return;
+    }
+
     try {
       const updateData: any = { status: newStatus };
       
@@ -584,27 +624,85 @@ const OrdersPage: React.FC = () => {
         updateData.served_at = new Date().toISOString();
       }
       
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('order_batches')
         .update(updateData)
-        .eq('id', batchId);
-      if (error) throw error;
+        .eq('id', batchId)
+        .select();
+
+      if (error) {
+        console.error('Error al actualizar batch:', error);
+        if (error.message?.includes('policy') || error.message?.includes('RLS') || error.message?.includes('permission')) {
+          alert(
+            'Error: No tienes permisos para actualizar order_batches.\n\n' +
+            'Solución: Verifica las políticas RLS en Supabase para permitir UPDATE en order_batches.'
+          );
+        } else {
+          alert("Error al actualizar el estado del batch: " + error.message);
+        }
+        return;
+      }
+
+      // Refrescar las órdenes para mostrar el cambio
+      await fetchActiveOrders();
     } catch (err: any) {
-      alert("Error: " + err.message);
+      console.error('Error completo al actualizar batch:', err);
+      alert("Error al actualizar el estado del batch: " + (err.message || 'Error desconocido'));
     }
   };
 
   const handleMarkGuestAsPaid = async (guestId: string) => {
+    if (!guestId) {
+      alert('Error: ID de guest no válido');
+      return;
+    }
+
+    // Activar estado de loading
+    setMarkingGuestAsPaid(guestId);
+
     try {
-      const { error } = await supabase
-        .from('order_guests')
-        .update({ paid: true })
-        .eq('id', guestId);
-      if (error) throw error;
+      // Intentar primero con función RPC (bypassa RLS)
+      const { data: rpcData, error: rpcError } = await supabase.rpc('mark_guest_as_paid', {
+        guest_id: guestId
+      });
+      
+      if (rpcError) {
+        // Si la función RPC no existe o falla, intentar con update directo
+        console.warn('Función RPC no disponible, intentando update directo:', rpcError.message);
+        
+        const { data, error } = await supabase
+          .from('order_guests')
+          .update({ paid: true })
+          .eq('id', guestId)
+          .select();
+        
+        if (error) {
+          console.error('Error al actualizar order_guests:', error);
+          setMarkingGuestAsPaid(null); // Desactivar loading en caso de error
+          if (error.message?.includes('policy') || error.message?.includes('RLS') || error.message?.includes('permission')) {
+            alert(
+              'Error: No tienes permisos para actualizar order_guests.\n\n' +
+              'Solución: Ejecuta el script "mark_guest_as_paid_function.sql" en el SQL Editor de Supabase\n' +
+              'O ejecuta "add_order_guests_paid_policy.sql" para agregar políticas RLS de UPDATE.'
+            );
+          } else {
+            alert("Error al marcar como pagado: " + error.message);
+          }
+          return;
+        }
+      }
+      
       // Refrescar las órdenes para mostrar el cambio
-      fetchActiveOrders();
+      await fetchActiveOrders();
     } catch (err: any) {
-      alert("Error al marcar como pagado: " + err.message);
+      console.error('Error completo al marcar como pagado:', err);
+      setMarkingGuestAsPaid(null); // Desactivar loading en caso de error
+      alert("Error al marcar como pagado: " + (err.message || 'Error desconocido'));
+    } finally {
+      // Desactivar loading después de completar (con un pequeño delay para que se vea el cambio)
+      setTimeout(() => {
+        setMarkingGuestAsPaid(null);
+      }, 500);
     }
   };
 
@@ -824,6 +922,8 @@ const OrdersPage: React.FC = () => {
               order={order} 
               onCloseOrder={handleCloseOrder}
               onUpdateBatchStatus={handleUpdateBatchStatus}
+              onMarkGuestAsPaid={handleMarkGuestAsPaid}
+              markingGuestAsPaid={markingGuestAsPaid}
               forceExpanded={order.id === expandedOrderId}
               isClosed={showClosedOrders || order.status === 'Pagado'}
             />

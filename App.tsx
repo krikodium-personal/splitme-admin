@@ -136,7 +136,7 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
                 <SidebarLink to="/orders" icon={ShoppingBag} label="Pedidos" />
                 <SidebarLink to="/menu" icon={List} label="Productos" />
                 <SidebarLink to="/tables" icon={Grid} label="Mesas" />
-                <SidebarLink to="/waiters" icon={Users} label="Staff" />
+                <SidebarLink to="/waiters" icon={Users} label="Meseros" />
                 <SidebarLink to="/feedback" icon={BarChart3} label="Calidad" />
                 <SidebarLink to="/create" icon={PlusCircle} label="Añadir" />
                 <SidebarLink to="/settings" icon={Settings} label="Configuración" />

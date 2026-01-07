@@ -16,6 +16,7 @@ interface Waiter {
   start_date: string;
   average_rating: number;
   is_active: boolean;
+  alias_tip?: string;
   created_at?: string;
 }
 
@@ -37,7 +38,8 @@ const WaitersPage: React.FC = () => {
     full_name: '',
     nickname: '',
     start_date: new Date().toISOString().split('T')[0],
-    is_active: true
+    is_active: true,
+    alias_tip: ''
   });
 
   useEffect(() => {
@@ -82,7 +84,8 @@ const WaitersPage: React.FC = () => {
       full_name: waiter.full_name,
       nickname: waiter.nickname,
       start_date: waiter.start_date,
-      is_active: waiter.is_active
+      is_active: waiter.is_active,
+      alias_tip: waiter.alias_tip || ''
     });
     setPreviewUrl(waiter.profile_photo_url);
     
@@ -103,7 +106,8 @@ const WaitersPage: React.FC = () => {
       full_name: '',
       nickname: '',
       start_date: new Date().toISOString().split('T')[0],
-      is_active: true
+      is_active: true,
+      alias_tip: ''
     });
     setPreviewUrl(null);
     setSelectedFile(null);
@@ -169,7 +173,8 @@ const WaitersPage: React.FC = () => {
         nickname: formData.nickname,
         profile_photo_url: photoUrl,
         start_date: formData.start_date,
-        is_active: formData.is_active
+        is_active: formData.is_active,
+        alias_tip: formData.alias_tip || null
       };
 
       let waiterId = editingWaiterId;
@@ -290,7 +295,7 @@ const WaitersPage: React.FC = () => {
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-black text-gray-900 tracking-tighter">Gestión de Staff</h1>
+          <h1 className="text-4xl font-black text-gray-900 tracking-tighter">Gestión de meseros</h1>
           <p className="text-gray-500 mt-1 font-medium flex items-center gap-2">
             <Users size={14} className="text-indigo-600"/> 
             Equipo de servicio de <span className="font-bold text-indigo-600">{CURRENT_RESTAURANT?.name || 'Cargando...'}</span>
@@ -398,6 +403,18 @@ const WaitersPage: React.FC = () => {
                     </label>
                   </div>
                 </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Alias para recibir propinas</label>
+                  <input 
+                    name="alias_tip"
+                    value={formData.alias_tip}
+                    onChange={handleInputChange}
+                    placeholder="Ej: @alex_propinas"
+                    className="w-full bg-gray-50 border-transparent border-2 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm"
+                  />
+                  <p className="text-[9px] text-gray-400 ml-1">Campo opcional. Alias alfanumérico para recibir propinas</p>
+                </div>
               </div>
             </div>
 
@@ -471,7 +488,7 @@ const WaitersPage: React.FC = () => {
                 className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
               >
                 {submitting ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <CheckCircle2 size={20}/>}
-                {editingWaiterId ? 'Actualizar Información' : 'Registrar Staff'}
+                {editingWaiterId ? 'Actualizar Información' : 'Registrar Mesero'}
               </button>
             </div>
           </form>
@@ -542,6 +559,18 @@ const WaitersPage: React.FC = () => {
                       {getAssignedTableNumbers(waiter.id)}
                     </p>
                   </div>
+
+                  {/* Alias para Propinas */}
+                  {waiter.alias_tip && (
+                    <div className="w-full px-4 py-2 bg-emerald-50/50 rounded-xl border border-emerald-100/50">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Alias Propinas</span>
+                      </div>
+                      <p className="text-[11px] font-bold text-emerald-600 truncate">
+                        {waiter.alias_tip}
+                      </p>
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-2 w-full mt-2">
                     <button 
