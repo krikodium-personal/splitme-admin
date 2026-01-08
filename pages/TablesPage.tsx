@@ -40,6 +40,22 @@ const TablesPage: React.FC = () => {
     waiter_id: 'none'
   });
 
+  // Cerrar modal con tecla ESC
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedTableForQR) {
+        setSelectedTableForQR(null);
+      }
+    };
+
+    if (selectedTableForQR) {
+      window.addEventListener('keydown', handleEscape);
+      return () => {
+        window.removeEventListener('keydown', handleEscape);
+      };
+    }
+  }, [selectedTableForQR]);
+
   useEffect(() => {
     fetchData();
 
@@ -288,7 +304,15 @@ const TablesPage: React.FC = () => {
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
       {/* Modal de QR */}
       {selectedTableForQR && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div 
+          className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4"
+          onClick={(e) => {
+            // Cerrar modal si se hace click en el fondo (no en el contenido)
+            if (e.target === e.currentTarget) {
+              setSelectedTableForQR(null);
+            }
+          }}
+        >
           <div className="max-w-sm w-full animate-in zoom-in-95 duration-300">
              <div ref={qrCardRef} className="bg-white p-10 rounded-[3rem] text-center shadow-2xl">
                 <div className="mb-6 flex justify-center">
@@ -315,8 +339,24 @@ const TablesPage: React.FC = () => {
                   />
                 </div>
 
-                <div className="inline-block px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xl shadow-lg">
-                  MESA {selectedTableForQR.table_number}
+                {/* Información adicional para acceso manual */}
+                <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
+                  <p className="text-sm font-bold text-gray-700">
+                    ¿Tienes problemas para escanear el QR?
+                  </p>
+                  <p className="text-xs text-gray-600 font-medium">
+                    Ingresa manualmente a tu mesa desde <span className="font-black text-indigo-600">www.splitme.com</span>
+                  </p>
+                  <div className="bg-gray-50 rounded-xl p-4 space-y-2 mt-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase text-gray-400 tracking-widest">Código de mesa:</span>
+                      <span className="text-base font-black text-gray-900">{CURRENT_RESTAURANT?.access_code || 'N/A'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase text-gray-400 tracking-widest">Número de mesa:</span>
+                      <span className="text-base font-black text-gray-900">{selectedTableForQR.table_number}</span>
+                    </div>
+                  </div>
                 </div>
              </div>
 

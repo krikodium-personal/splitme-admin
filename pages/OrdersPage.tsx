@@ -12,8 +12,9 @@ import { CURRENT_RESTAURANT } from '../types';
 const BatchCard: React.FC<{ 
   batch: any, 
   batchIndex: number,
-  onUpdateBatchStatus: (batchId: string, newStatus: string) => void 
-}> = ({ batch, batchIndex, onUpdateBatchStatus }) => {
+  onUpdateBatchStatus: (batchId: string, newStatus: string) => void,
+  isArchived?: boolean
+}> = ({ batch, batchIndex, onUpdateBatchStatus, isArchived = false }) => {
   const [isExpanded, setIsExpanded] = useState(batch.status !== 'SERVIDO');
 
   // Colapsar automáticamente cuando el batch se marca como SERVIDO
@@ -224,7 +225,7 @@ const OrderGroupCard: React.FC<{
                     setShowConfirmModal(true);
                   }
                 }}
-                disabled={isOrderClosed || isClosing}
+                disabled={isOrderClosed || propIsClosed || isClosing}
                 className={`flex items-center gap-2 px-5 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg transition-all ${
                   isClosing
                     ? 'bg-amber-600 text-white shadow-amber-100 cursor-wait'
@@ -312,7 +313,8 @@ const OrderGroupCard: React.FC<{
                 key={batch.id} 
                 batch={batch} 
                 batchIndex={idx} 
-                onUpdateBatchStatus={onUpdateBatchStatus} 
+                onUpdateBatchStatus={onUpdateBatchStatus}
+                isArchived={propIsClosed}
               />
             ))
           ) : (
@@ -347,6 +349,9 @@ const OrderGroupCard: React.FC<{
                   // Verificar si está pagado: solo usar el campo paid de order_guests
                   const isPaid = guest.paid === true;
                   
+                  // Obtener payment_id directamente de order_guests
+                  const paymentId = guest.payment_id || null;
+                  
                   // Determinar si necesita pago manual (solo efectivo o transferencia)
                   // Para mercadopago, no mostrar botón, solo esperar que paid=true automáticamente
                   const needsManualPayment = paymentMethod && (
@@ -376,6 +381,9 @@ const OrderGroupCard: React.FC<{
                         {paymentMethod && (
                           <p className="text-[9px] text-slate-500 font-medium">
                             Método: <span className="font-black text-slate-700 capitalize">{paymentMethod}</span>
+                            {isMercadoPago && isPaid && paymentId && (
+                              <span className="ml-2 text-indigo-600">ID: {paymentId}</span>
+                            )}
                           </p>
                         )}
                       </div>
@@ -386,7 +394,11 @@ const OrderGroupCard: React.FC<{
                           </p>
                           {paymentMethod && (
                             <p className="text-[9px] text-slate-500 font-medium capitalize">
-                              {paymentMethod}
+                              {isMercadoPago && isPaid && paymentId ? (
+                                <span className="text-indigo-600 font-black">ID: {paymentId}</span>
+                              ) : (
+                                paymentMethod
+                              )}
                             </p>
                           )}
                         </div>
@@ -399,7 +411,7 @@ const OrderGroupCard: React.FC<{
                             >
                               PAGADO
                             </button>
-                          ) : (
+                          ) : !propIsClosed ? (
                             <button
                               onClick={() => onMarkGuestAsPaid(guest.id)}
                               disabled={markingGuestAsPaid === guest.id}
@@ -414,7 +426,7 @@ const OrderGroupCard: React.FC<{
                                 'Marcar Pagado'
                               )}
                             </button>
-                          )
+                          ) : null
                         )}
                         {/* Para MercadoPago, no mostrar botón, solo mostrar estado */}
                         {isMercadoPago && !isPaid && (
@@ -438,6 +450,7 @@ const OrderGroupCard: React.FC<{
 const OrdersPage: React.FC = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [toggleLoading, setToggleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [showClosedOrders, setShowClosedOrders] = useState(false);
@@ -457,45 +470,74 @@ const OrdersPage: React.FC = () => {
         table: 'orders',
         filter: CURRENT_RESTAURANT?.id ? `restaurant_id=eq.${CURRENT_RESTAURANT.id}` : undefined
       }, (payload) => {
-        setExpandedOrderId(payload.new.id);
-        fetchActiveOrders();
+        // Solo actualizar si estamos viendo órdenes abiertas
+        if (!showClosedOrders) {
+          setExpandedOrderId(payload.new.id);
+          fetchActiveOrders();
+        }
       })
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
         table: 'order_batches' 
       }, (payload) => {
-        if (bellAudioRef.current) {
-          bellAudioRef.current.currentTime = 0;
-          bellAudioRef.current.play().catch(() => {});
+        // Solo actualizar si estamos viendo órdenes abiertas
+        if (!showClosedOrders) {
+          if (bellAudioRef.current) {
+            bellAudioRef.current.currentTime = 0;
+            bellAudioRef.current.play().catch(() => {});
+          }
+          setExpandedOrderId(payload.new.order_id);
+          fetchActiveOrders();
         }
-        setExpandedOrderId(payload.new.order_id);
-        fetchActiveOrders();
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_batches' }, fetchActiveOrders)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchActiveOrders)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_batches' }, () => {
+        // Solo actualizar si estamos viendo órdenes abiertas
+        if (!showClosedOrders) {
+          fetchActiveOrders();
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
+        // Solo actualizar si estamos viendo órdenes abiertas
+        if (!showClosedOrders) {
+          fetchActiveOrders();
+        }
+      })
       .on('postgres_changes', { 
         event: 'UPDATE', 
         schema: 'public', 
         table: 'orders',
         filter: CURRENT_RESTAURANT?.id ? `restaurant_id=eq.${CURRENT_RESTAURANT.id}` : undefined
-      }, fetchActiveOrders)
+      }, () => {
+        // Solo actualizar si estamos viendo órdenes abiertas
+        if (!showClosedOrders) {
+          fetchActiveOrders();
+        }
+      })
       .on('postgres_changes', { 
         event: 'UPDATE', 
         schema: 'public', 
         table: 'order_guests'
-      }, fetchActiveOrders)
+      }, () => {
+        // Solo actualizar si estamos viendo órdenes abiertas
+        if (!showClosedOrders) {
+          fetchActiveOrders();
+        }
+      })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [showClosedOrders]);
 
   // Refrescar órdenes cuando cambie el toggle
   useEffect(() => {
     if (!loading) {
-      fetchActiveOrders();
+      setToggleLoading(true);
+      fetchActiveOrders().finally(() => {
+        setToggleLoading(false);
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showClosedOrders]);
@@ -505,43 +547,115 @@ const OrdersPage: React.FC = () => {
     try {
       setErrorMsg(null);
       
+      // Determinar qué tablas usar según el toggle
+      const ordersTable = showClosedOrders ? 'orders_archive' : 'orders';
+      const batchesTable = showClosedOrders ? 'order_batches_archive' : 'order_batches';
+      const itemsTable = showClosedOrders ? 'order_items_archive' : 'order_items';
+      const guestsTable = showClosedOrders ? 'order_guests_archive' : 'order_guests';
+      const paymentsTable = showClosedOrders ? 'payments_archive' : 'payments';
+      
       // Construir la query según el toggle
+      console.log('🔍 fetchActiveOrders - showClosedOrders:', showClosedOrders, 'ordersTable:', ordersTable);
+      
       let query = supabase
-        .from('orders')
-        .select('*, tables(table_number), order_batches(*)')
+        .from(ordersTable)
+        .select('*')
         .eq('restaurant_id', CURRENT_RESTAURANT.id);
       
       if (showClosedOrders) {
-        // Mostrar órdenes cerradas (Pagado)
-        query = query.eq('status', 'Pagado');
+        // Mostrar todas las órdenes archivadas (sin filtro de status)
+        // Las órdenes archivadas ya están todas cerradas
+        // No aplicamos ningún filtro adicional
+        console.log('📦 Consultando orders_archive (sin filtros)');
       } else {
         // Mostrar órdenes abiertas (ABIERTO o SOLICITADO)
         query = query.or('status.eq.ABIERTO,status.eq.SOLICITADO');
+        console.log('📋 Consultando orders (con filtro ABIERTO/SOLICITADO)');
       }
       
       const { data: ordersData, error: ordersError } = await query;
+      
+      // Debug: verificar qué tabla se está consultando
+      console.log(`✅ Consulta completada. Tabla: ${ordersTable}, Órdenes encontradas:`, ordersData?.length || 0);
+      if (ordersData && ordersData.length > 0) {
+        console.log('📊 Primeras órdenes:', ordersData.slice(0, 3).map(o => ({ id: o.id, status: o.status, table_id: o.table_id })));
+      }
 
       if (ordersError) throw ordersError;
       if (!ordersData) { setOrders([]); return; }
 
-      const batchIds = ordersData.flatMap(order => (order.order_batches || []).map((b: any) => b.id));
       const orderIds = ordersData.map(order => order.id);
+      
+      // Obtener información de las mesas por separado (ya que no hay relación directa con orders_archive)
+      const tableIds = [...new Set(ordersData.map(order => order.table_id).filter(Boolean))];
+      let tablesData: any[] = [];
+      if (tableIds.length > 0) {
+        const { data: tables, error: tablesError } = await supabase
+          .from('tables')
+          .select('id, table_number')
+          .in('id', tableIds);
+        if (tablesError) {
+          console.error('Error al cargar tables:', tablesError);
+        } else {
+          tablesData = tables || [];
+        }
+      }
+
+      // Obtener batches por separado (ya que no podemos hacer join entre tablas diferentes)
+      let batchesData: any[] = [];
+      if (orderIds.length > 0) {
+        const { data: batches, error: batchesError } = await supabase
+          .from(batchesTable)
+          .select('*')
+          .in('order_id', orderIds);
+        if (batchesError) {
+          console.error('Error al cargar batches:', batchesError);
+        } else {
+          batchesData = batches || [];
+        }
+      }
+
+      const batchIds = batchesData.map(batch => batch.id);
 
       let itemsData: any[] = [];
       if (batchIds.length > 0) {
-        const { data, error: itemsError } = await supabase
-          .from('order_items')
-          .select('*, menu_items(name)')
+        // Obtener items sin el join con menu_items (ya que no hay relación directa con _archive)
+        const { data: items, error: itemsError } = await supabase
+          .from(itemsTable)
+          .select('*')
           .in('batch_id', batchIds);
         if (itemsError) throw itemsError;
-        itemsData = data || [];
+        itemsData = items || [];
+        
+        // Obtener menu_items por separado si hay items
+        if (itemsData.length > 0) {
+          const menuItemIds = [...new Set(itemsData.map(item => item.menu_item_id).filter(Boolean))];
+          if (menuItemIds.length > 0) {
+            const { data: menuItems, error: menuItemsError } = await supabase
+              .from('menu_items')
+              .select('id, name')
+              .in('id', menuItemIds);
+            if (menuItemsError) {
+              console.error('Error al cargar menu_items:', menuItemsError);
+            } else {
+              // Combinar menu_items con items
+              itemsData = itemsData.map(item => {
+                const menuItem = menuItems?.find(mi => mi.id === item.menu_item_id);
+                return {
+                  ...item,
+                  menu_items: menuItem ? { name: menuItem.name } : null
+                };
+              });
+            }
+          }
+        }
       }
 
       // Obtener order_guests para cada orden
       let guestsData: any[] = [];
       if (orderIds.length > 0) {
         const { data: guests, error: guestsError } = await supabase
-          .from('order_guests')
+          .from(guestsTable)
           .select('*')
           .in('order_id', orderIds);
         if (guestsError) {
@@ -555,7 +669,7 @@ const OrdersPage: React.FC = () => {
       let paymentsData: any[] = [];
       if (orderIds.length > 0) {
         const { data: payments, error: paymentsError } = await supabase
-          .from('payments')
+          .from(paymentsTable)
           .select('*')
           .in('order_id', orderIds);
         if (paymentsError) throw paymentsError;
@@ -563,12 +677,16 @@ const OrdersPage: React.FC = () => {
       }
 
       const processedOrders = ordersData.map(order => {
-        const orderBatches = (order.order_batches || []).map((batch: any) => ({
-          ...batch,
-          order_items: itemsData.filter(item => item.batch_id === batch.id)
-        })).sort((a: any, b: any) => 
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        );
+        // Obtener batches para esta orden
+        const orderBatches = batchesData
+          .filter(batch => batch.order_id === order.id)
+          .map((batch: any) => ({
+            ...batch,
+            order_items: itemsData.filter(item => item.batch_id === batch.id)
+          }))
+          .sort((a: any, b: any) => 
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
 
         // Calcular el timestamp de la actividad más reciente (orden o último lote)
         const latestBatchTime = orderBatches.length > 0 
@@ -590,8 +708,12 @@ const OrdersPage: React.FC = () => {
           };
         });
 
+        // Obtener información de la mesa
+        const tableInfo = tablesData.find(table => table.id === order.table_id);
+
         return {
           ...order,
+          tables: tableInfo ? { table_number: tableInfo.table_number } : null,
           order_batches: orderBatches,
           order_guests: guestsWithPayments,
           lastActivity
@@ -607,6 +729,7 @@ const OrdersPage: React.FC = () => {
       setErrorMsg(err.message || 'Error de conexión con cocina');
     } finally {
       setLoading(false);
+      setToggleLoading(false);
     }
   };
 
@@ -708,10 +831,29 @@ const OrdersPage: React.FC = () => {
 
   const handleCloseOrder = async (order: any): Promise<boolean> => {
     const batches = order.order_batches || [];
-    const allServidos = batches.every((b: any) => b.status === 'SERVIDO');
+    const orderGuests = order.order_guests || [];
+    
+    // Filtrar batches que no sean 'CREADO' (solo considerar batches que ya fueron enviados)
+    const batchesToCheck = batches.filter((b: any) => b.status !== 'CREADO');
+    
+    // Verificar que todos los batches (excluyendo 'CREADO') estén en 'SERVIDO'
+    // Si hay batches para verificar, todos deben estar SERVIDO
+    // Si solo hay batches con status 'CREADO', no hay nada que verificar
+    const allServidos = batchesToCheck.length === 0 || batchesToCheck.every((b: any) => b.status === 'SERVIDO');
+    
+    // Verificar que no haya batches con otros status (que no sean CREADO ni SERVIDO)
+    const hasOtherStatus = batchesToCheck.some((b: any) => b.status !== 'SERVIDO');
+    
+    // Verificar que todos los order_guests tengan paid=true
+    const allPaid = orderGuests.length === 0 || orderGuests.every((g: any) => g.paid === true);
 
-    if (!allServidos) {
+    if (hasOtherStatus || !allServidos) {
       setErrorMsg("Para poder cerrar una mesa, asegurate que todos los lotes estén marcados como \"servido\"");
+      return false;
+    }
+    
+    if (!allPaid) {
+      setErrorMsg("Para poder cerrar una mesa, asegurate que todas las divisiones de pago estén marcadas como pagadas");
       return false;
     }
     
@@ -806,22 +948,37 @@ const OrdersPage: React.FC = () => {
       // Esto mueve order_items, order_batches, order_guests a tablas de historial
       // y elimina los registros de las tablas activas para mantener el rendimiento
       console.log('📦 Archivando orden y datos relacionados...');
-      const { data: archiveResult, error: archiveError } = await supabase.rpc('archive_order', {
-        order_id: order.id,
-        restaurant_id_param: CURRENT_RESTAURANT?.id || ''
-      });
-
-      if (archiveError) {
-        console.warn("⚠️ Error al archivar orden (no crítico):", archiveError);
-        // No lanzamos error aquí porque la orden ya está cerrada
-        // El archivado puede hacerse manualmente después si es necesario
-      } else if (archiveResult && archiveResult.success) {
-        console.log('✅ Orden archivada correctamente:', {
-          archived_records: archiveResult.archived_records,
-          archived_at: archiveResult.archived_at
+      
+      try {
+        const { data: archiveResult, error: archiveError } = await supabase.rpc('archive_order', {
+          order_id: order.id,
+          restaurant_id_param: CURRENT_RESTAURANT?.id || ''
         });
-      } else {
-        console.warn("⚠️ La función de archivado no está disponible aún. Ejecuta archive_order_function.sql en Supabase.");
+
+        if (archiveError) {
+          // Si el error es que la función no existe, solo loguear
+          if (archiveError.message?.includes('function') || archiveError.message?.includes('does not exist')) {
+            console.warn("⚠️ La función de archivado no está disponible. Ejecuta archive_order_function.sql en Supabase.");
+          } else {
+            console.error("❌ Error al archivar orden:", archiveError);
+            // No lanzamos error aquí porque la orden ya está cerrada
+            // El archivado puede hacerse manualmente después si es necesario
+          }
+        } else if (archiveResult) {
+          if (archiveResult.success) {
+            console.log('✅ Orden archivada correctamente:', {
+              order_id: archiveResult.order_id,
+              archived_records: archiveResult.archived_records,
+              archived_at: archiveResult.archived_at
+            });
+          } else {
+            console.warn("⚠️ El archivado no fue exitoso:", archiveResult.error || 'Error desconocido');
+          }
+        }
+      } catch (archiveErr: any) {
+        // Capturar cualquier error inesperado en el archivado
+        console.error("❌ Error inesperado al archivar:", archiveErr);
+        // No lanzamos error porque la orden ya está cerrada correctamente
       }
 
       // Refrescar las órdenes activas después de un pequeño delay para que el usuario vea el cambio
@@ -914,7 +1071,32 @@ const OrdersPage: React.FC = () => {
         </div>
       )}
 
-      {orders.length > 0 ? (
+      {toggleLoading ? (
+        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-8 items-start">
+          {[...Array(6)].map((_, index) => (
+            <div key={index} className="bg-white rounded-[2.5rem] border border-gray-100 shadow-md overflow-hidden animate-pulse">
+              <div className="p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="h-6 bg-gray-200 rounded-lg w-32"></div>
+                  <div className="h-8 bg-gray-200 rounded-xl w-20"></div>
+                </div>
+                <div className="space-y-3">
+                  <div className="h-4 bg-gray-200 rounded w-full"></div>
+                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                </div>
+                <div className="space-y-2 pt-4">
+                  {[...Array(2)].map((_, i) => (
+                    <div key={i} className="h-16 bg-gray-100 rounded-2xl"></div>
+                  ))}
+                </div>
+                <div className="pt-4 border-t border-gray-100">
+                  <div className="h-10 bg-gray-200 rounded-xl"></div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : orders.length > 0 ? (
         <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-8 items-start">
           {orders.map(order => (
             <OrderGroupCard 

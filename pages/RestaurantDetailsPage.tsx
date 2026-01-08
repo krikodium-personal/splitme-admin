@@ -78,34 +78,93 @@ const RestaurantDetailsPage: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('restaurant_id', id);
 
-      // 2. Obtener Ventas Históricas para comparativa
-      const { data: histData } = await supabase
-        .from('orders')
-        .select('total_amount')
-        .eq('restaurant_id', id)
-        .eq('status', 'Pagado');
+      // 2. Ventas Históricas (desde tabla agregada para performance)
+      // Intentar usar tabla agregada primero, fallback a eventos si no existe
+      let historicalTotal = 0;
+      let rangeSales = 0;
+      let totalOrders = 0;
       
-      const historicalTotal = histData?.reduce((acc, curr) => acc + (curr.total_amount || 0), 0) || 0;
+      try {
+        // Intentar usar tabla agregada (más rápida)
+        const { data: histSummary } = await supabase
+          .from('dashboard_daily_summary')
+          .select('total_sales, total_orders')
+          .eq('restaurant_id', id);
+        
+        if (histSummary && histSummary.length > 0) {
+          // Usar tabla agregada
+          historicalTotal = histSummary.reduce((acc, curr) => acc + (Number(curr.total_sales) || 0), 0);
+          
+          // Ventas por rango usando tabla agregada
+          const now = new Date();
+          let startDate: Date;
+          
+          if (timeRange === 'weekly') {
+            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          } else if (timeRange === 'monthly') {
+            startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+          } else if (timeRange === 'yearly') {
+            startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+          } else {
+            startDate = new Date(0); // Historical = todo
+          }
+          
+          let rangeQuery = supabase
+            .from('dashboard_daily_summary')
+            .select('total_sales, total_orders')
+            .eq('restaurant_id', id);
+          
+          if (timeRange !== 'historical') {
+            rangeQuery = rangeQuery.gte('summary_date', startDate.toISOString().split('T')[0]);
+          }
+          
+          const { data: rangeSummary } = await rangeQuery;
+          
+          if (rangeSummary && rangeSummary.length > 0) {
+            rangeSales = rangeSummary.reduce((acc, curr) => acc + (Number(curr.total_sales) || 0), 0);
+            totalOrders = rangeSummary.reduce((acc, curr) => acc + (Number(curr.total_orders) || 0), 0);
+          }
+        } else {
+          // Fallback: usar eventos individuales si no existe tabla agregada
+          const { data: histData } = await supabase
+            .from('dashboard_order_events')
+            .select('total_amount')
+            .eq('restaurant_id', id);
+          
+          historicalTotal = histData?.reduce((acc, curr) => acc + (curr.total_amount || 0), 0) || 0;
 
-      // 3. Ventas por Rango de Tiempo
-      let query = supabase.from('orders').select('total_amount').eq('restaurant_id', id).eq('status', 'Pagado');
-      
-      const now = new Date();
-      if (timeRange === 'weekly') {
-        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        query = query.gte('created_at', weekAgo.toISOString());
-      } else if (timeRange === 'monthly') {
-        const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-        query = query.gte('created_at', monthAgo.toISOString());
-      } else if (timeRange === 'yearly') {
-        const yearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-        query = query.gte('created_at', yearAgo.toISOString());
+          const now = new Date();
+          let query = supabase
+            .from('dashboard_order_events')
+            .select('total_amount, closed_at')
+            .eq('restaurant_id', id);
+          
+          if (timeRange === 'weekly') {
+            const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            query = query.gte('closed_at', weekAgo.toISOString());
+          } else if (timeRange === 'monthly') {
+            const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+            query = query.gte('closed_at', monthAgo.toISOString());
+          } else if (timeRange === 'yearly') {
+            const yearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+            query = query.gte('closed_at', yearAgo.toISOString());
+          }
+
+          const { data: ordersData } = await query;
+          
+          rangeSales = ordersData?.reduce((acc, curr) => acc + (curr.total_amount || 0), 0) || 0;
+          totalOrders = ordersData?.length || 0;
+        }
+      } catch (err) {
+        console.error("Error al cargar desde tabla agregada, usando eventos:", err);
+        // Fallback completo a eventos individuales
+        const { data: histData } = await supabase
+          .from('dashboard_order_events')
+          .select('total_amount')
+          .eq('restaurant_id', id);
+        
+        historicalTotal = histData?.reduce((acc, curr) => acc + (curr.total_amount || 0), 0) || 0;
       }
-
-      const { data: ordersData } = await query;
-      
-      const rangeSales = ordersData?.reduce((acc, curr) => acc + (curr.total_amount || 0), 0) || 0;
-      const totalOrders = ordersData?.length || 0;
 
       setStats({
         dishes: dishCount || 0,

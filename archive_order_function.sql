@@ -29,11 +29,16 @@ CREATE TABLE IF NOT EXISTS order_guests_archive (
   LIKE order_guests INCLUDING ALL
 );
 
+CREATE TABLE IF NOT EXISTS payments_archive (
+  LIKE payments INCLUDING ALL
+);
+
 -- 2. Agregar columna de fecha de archivado para tracking
 ALTER TABLE orders_archive ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 ALTER TABLE order_batches_archive ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 ALTER TABLE order_items_archive ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 ALTER TABLE order_guests_archive ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+ALTER TABLE payments_archive ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 
 -- 3. Crear índices para búsquedas rápidas en historial
 CREATE INDEX IF NOT EXISTS idx_orders_archive_restaurant_id ON orders_archive(restaurant_id);
@@ -112,6 +117,16 @@ BEGIN
     archived_count := archived_count + (SELECT COUNT(*) FROM order_guests WHERE order_id = order_id);
   END IF;
 
+  -- 4.5. Archivar todos los payments de la orden (si existe la tabla payments_archive)
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payments_archive') THEN
+    INSERT INTO payments_archive
+    SELECT *, NOW() as archived_at
+    FROM payments
+    WHERE order_id = order_id;
+
+    archived_count := archived_count + (SELECT COUNT(*) FROM payments WHERE order_id = order_id);
+  END IF;
+
   -- 5. Eliminar los registros de las tablas activas (en orden inverso por dependencias)
   -- Primero items (dependen de batches)
   DELETE FROM order_items
@@ -123,6 +138,11 @@ BEGIN
   -- Luego guests (si existe)
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_guests') THEN
     DELETE FROM order_guests WHERE order_id = order_id;
+  END IF;
+
+  -- Luego payments (si existe la tabla payments_archive, significa que también debemos eliminar de payments)
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payments_archive') THEN
+    DELETE FROM payments WHERE order_id = order_id;
   END IF;
 
   -- Finalmente la orden
