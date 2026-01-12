@@ -70,6 +70,7 @@ export interface MenuItem {
   };
   nutrition: NutritionalTable;
   is_featured: boolean;
+  is_new: boolean;
   is_available: boolean;
   preparation_time_min: number;
   average_rating?: number;

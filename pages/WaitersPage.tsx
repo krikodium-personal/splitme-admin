@@ -4,6 +4,7 @@ import {
   Users, UserPlus, Camera, Star, Calendar, Clock, 
   Trash2, CheckCircle2, X, Plus, ChevronRight, Store, Grid, Edit3, Info
 } from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { CURRENT_RESTAURANT, Table } from '../types';
 
@@ -21,9 +22,25 @@ interface Waiter {
 }
 
 const WaitersPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [waiters, setWaiters] = useState<Waiter[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  const filterActive = searchParams.get('active') === 'true';
+  
+  const updateURL = (params: Record<string, string | null>) => {
+    const newParams = new URLSearchParams(searchParams);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === null || value === '') {
+        newParams.delete(key);
+      } else {
+        newParams.set(key, value);
+      }
+    });
+    setSearchParams(newParams, { replace: true });
+  };
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -260,6 +277,8 @@ const WaitersPage: React.FC = () => {
     
     if (!error) {
       setWaiters(prev => prev.map(w => w.id === id ? { ...w, is_active: !currentStatus } : w));
+      // Actualizar URL con el nuevo estado
+      updateURL({ active: !currentStatus ? 'true' : null });
     }
   };
 
@@ -301,17 +320,29 @@ const WaitersPage: React.FC = () => {
             Equipo de servicio de <span className="font-bold text-indigo-600">{CURRENT_RESTAURANT?.name || 'Cargando...'}</span>
           </p>
         </div>
-        <button 
-          onClick={() => showForm ? closeForm() : setShowForm(true)}
-          className={`flex items-center gap-2 px-6 py-3.5 rounded-2xl font-black transition-all active:scale-95 shadow-xl ${
-            showForm 
-              ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' 
-              : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-100'
-          }`}
-        >
-          {showForm ? <X size={20} /> : <UserPlus size={20} />}
-          {showForm ? 'Cancelar' : 'Añadir Mesero'}
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => updateURL({ active: filterActive ? null : 'true' })}
+            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+              filterActive
+                ? 'bg-emerald-100 text-emerald-700 border-2 border-emerald-300'
+                : 'bg-gray-50 text-gray-400 border border-transparent hover:border-emerald-100'
+            }`}
+          >
+            Solo Activos
+          </button>
+          <button 
+            onClick={() => showForm ? closeForm() : setShowForm(true)}
+            className={`flex items-center gap-2 px-6 py-3.5 rounded-2xl font-black transition-all active:scale-95 shadow-xl ${
+              showForm 
+                ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' 
+                : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-100'
+            }`}
+          >
+            {showForm ? <X size={20} /> : <UserPlus size={20} />}
+            {showForm ? 'Cancelar' : 'Añadir Mesero'}
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -503,7 +534,7 @@ const WaitersPage: React.FC = () => {
         </div>
       ) : waiters.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {waiters.map(waiter => (
+          {waiters.filter(waiter => !filterActive || waiter.is_active).map(waiter => (
             <div 
               key={waiter.id}
               onClick={() => startEditing(waiter)}

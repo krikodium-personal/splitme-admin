@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { HashRouter, Routes, Route, Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { 
   LayoutDashboard, PlusCircle, List, Settings, LogOut, ShoppingBag, 
   Store, Users, Grid, AlertTriangle, Loader2, Globe, ShieldCheck, RefreshCw,
@@ -90,7 +90,7 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
       await supabase.auth.signOut();
     } catch (error) {
       console.error("Error signing out:", error);
-      window.location.href = '/#/login';
+      window.location.href = '/login';
     }
   };
 
@@ -222,7 +222,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <HashRouter>
+    <BrowserRouter>
       <Routes>
         <Route path="/login" element={!profile ? <LoginPage /> : <Navigate to="/" />} />
         <Route path="/*" element={
@@ -254,7 +254,7 @@ const App: React.FC = () => {
           ) : <Navigate to="/login" />
         } />
       </Routes>
-    </HashRouter>
+    </BrowserRouter>
   );
 };
 

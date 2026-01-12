@@ -22,8 +22,27 @@ interface SettingsPageProps {
 }
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
-  const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<'taxonomy' | 'restaurant' | 'payments'>('taxonomy');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab') as 'taxonomy' | 'restaurant' | 'payments' | null;
+  const [activeTab, setActiveTab] = useState<'taxonomy' | 'restaurant' | 'payments'>(tabParam || 'taxonomy');
+  
+  const updateURL = (params: Record<string, string | null>) => {
+    const newParams = new URLSearchParams(searchParams);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === null || value === '') {
+        newParams.delete(key);
+      } else {
+        newParams.set(key, value);
+      }
+    });
+    setSearchParams(newParams, { replace: true });
+  };
+  
+  useEffect(() => {
+    if (tabParam && ['taxonomy', 'restaurant', 'payments'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
   
   // Estados para Categorías
   const [categories, setCategories] = useState<Category[]>([]);
@@ -598,19 +617,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         
         <div className="flex bg-white p-1 rounded-2xl border border-gray-100 shadow-sm overflow-x-auto">
            <button 
-            onClick={() => setActiveTab('taxonomy')}
+            onClick={() => { setActiveTab('taxonomy'); updateURL({ tab: 'taxonomy' }); }}
             className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'taxonomy' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
            >
             <FolderTree size={14} /> Estructura Menú
            </button>
            <button 
-            onClick={() => setActiveTab('restaurant')}
+            onClick={() => { setActiveTab('restaurant'); updateURL({ tab: 'restaurant' }); }}
             className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'restaurant' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
            >
             <Store size={14} /> Información Local
            </button>
            <button 
-            onClick={() => setActiveTab('payments')}
+            onClick={() => { setActiveTab('payments'); updateURL({ tab: 'payments' }); }}
             className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'payments' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
            >
             <CreditCard size={14} /> Medios de Pago
@@ -951,7 +970,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                       <div className="flex items-center gap-3 mb-2">
                         <CreditCard size={24} />
                         <h2 className="text-2xl font-black tracking-tight">Transferencia</h2>
-                      </div>
+           </div>
                       <p className="text-white/80 font-medium text-sm">Configura los datos bancarios para recibir transferencias</p>
                     </div>
                     <div className="absolute top-0 right-0 p-10 opacity-10 rotate-12">

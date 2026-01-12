@@ -43,6 +43,7 @@ const CreateItemPage: React.FC = () => {
     },
     image_url: '',
     is_featured: false,
+    is_new: false,
     is_available: true,
     preparation_time_min: 15,
     average_rating: 0
@@ -104,6 +105,7 @@ const CreateItemPage: React.FC = () => {
           },
           image_url: data.image_url,
           is_featured: data.is_featured,
+          is_new: data.is_new || false,
           is_available: data.is_available,
           preparation_time_min: data.preparation_time_min,
           average_rating: data.average_rating || 0
@@ -204,6 +206,7 @@ const CreateItemPage: React.FC = () => {
         fiber_g: Number(formData.nutrition.fiber_g),
         sodium_mg: Number(formData.nutrition.sodium_mg),
         is_featured: formData.is_featured,
+        is_new: formData.is_new,
         is_available: formData.is_available,
         preparation_time_min: Number(formData.preparation_time_min),
         dietary_tags: Array.isArray(formData.dietary_tags) ? formData.dietary_tags : [],
@@ -250,7 +253,20 @@ const CreateItemPage: React.FC = () => {
     <div className="max-w-6xl mx-auto pb-20 space-y-12 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/menu')} className="p-3 bg-white border border-gray-100 rounded-2xl text-gray-400 hover:text-indigo-600 hover:shadow-md transition-all active:scale-90">
+          <button 
+            onClick={() => {
+              // Navegar a /menu con los parámetros de categoría y subcategoría del plato
+              const params = new URLSearchParams();
+              if (formData.category_id) {
+                params.set('category', formData.category_id);
+              }
+              if (formData.subcategory_id) {
+                params.set('subcategory', formData.subcategory_id);
+              }
+              navigate(`/menu${params.toString() ? '?' + params.toString() : ''}`);
+            }} 
+            className="p-3 bg-white border border-gray-100 rounded-2xl text-gray-400 hover:text-indigo-600 hover:shadow-md transition-all active:scale-90"
+          >
             <ArrowLeft size={20} />
           </button>
           <div>
@@ -441,8 +457,12 @@ const CreateItemPage: React.FC = () => {
               <h3 className="font-black text-[10px] uppercase tracking-widest text-gray-400">Parámetros de Publicación</h3>
               <div className="space-y-4">
                 <label className="flex items-center justify-between cursor-pointer group p-3 rounded-2xl hover:bg-gray-50 transition-all">
-                  <span className="text-sm font-bold text-gray-700">Sugerencia del Chef</span>
+                  <span className="text-sm font-bold text-gray-700">Destacado</span>
                   <input type="checkbox" name="is_featured" checked={formData.is_featured} onChange={handleInputChange} className="w-6 h-6 rounded-lg border-2 border-gray-200 text-indigo-600 transition-all" />
+                </label>
+                <label className="flex items-center justify-between cursor-pointer group p-3 rounded-2xl hover:bg-gray-50 transition-all">
+                  <span className="text-sm font-bold text-gray-700">Nuevo</span>
+                  <input type="checkbox" name="is_new" checked={formData.is_new} onChange={handleInputChange} className="w-6 h-6 rounded-lg border-2 border-gray-200 text-indigo-600 transition-all" />
                 </label>
                 <label className="flex items-center justify-between cursor-pointer group p-3 rounded-2xl hover:bg-gray-50 transition-all">
                   <span className="text-sm font-bold text-gray-700">Stock Disponible</span>

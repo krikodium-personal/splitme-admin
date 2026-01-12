@@ -6,6 +6,7 @@ import {
   Timer, AlertCircle, Loader2, ChevronDown, ChevronUp, BellRing, X,
   Maximize2, Minimize2, Archive, CheckCircle
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { CURRENT_RESTAURANT } from '../types';
 
@@ -448,14 +449,27 @@ const OrderGroupCard: React.FC<{
 };
 
 const OrdersPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [toggleLoading, setToggleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
-  const [showClosedOrders, setShowClosedOrders] = useState(false);
+  const showClosedOrders = searchParams.get('closed') === 'true';
   const [markingGuestAsPaid, setMarkingGuestAsPaid] = useState<string | null>(null);
   const bellAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const updateURL = (params: Record<string, string | null>) => {
+    const newParams = new URLSearchParams(searchParams);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === null || value === '') {
+        newParams.delete(key);
+      } else {
+        newParams.set(key, value);
+      }
+    });
+    setSearchParams(newParams, { replace: true });
+  };
 
   useEffect(() => {
     bellAudioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
@@ -720,10 +734,27 @@ const OrdersPage: React.FC = () => {
         };
       });
 
-      // Ordenar por actividad reciente DESC
-      processedOrders.sort((a, b) => b.lastActivity - a.lastActivity);
+      // Filtrar órdenes abiertas: excluir aquellas que solo tienen batches con status 'CREADO'
+      // Solo aplicar este filtro cuando estamos viendo órdenes abiertas (no cerradas)
+      let filteredOrders = processedOrders;
+      if (!showClosedOrders) {
+        filteredOrders = processedOrders.filter(order => {
+          const batches = order.order_batches || [];
+          // Si no tiene batches, no mostrar
+          if (batches.length === 0) {
+            return false;
+          }
+          // Si tiene batches, verificar si al menos uno NO es 'CREADO'
+          const hasNonCreatedBatch = batches.some((batch: any) => batch.status !== 'CREADO');
+          return hasNonCreatedBatch;
+        });
+        console.log(`🔍 Filtrado: ${processedOrders.length} órdenes → ${filteredOrders.length} órdenes (excluidas las que solo tienen batches CREADO)`);
+      }
 
-      setOrders(processedOrders);
+      // Ordenar por actividad reciente DESC
+      filteredOrders.sort((a, b) => b.lastActivity - a.lastActivity);
+
+      setOrders(filteredOrders);
     } catch (err: any) {
       console.error("Fetch Orders Error:", err);
       setErrorMsg(err.message || 'Error de conexión con cocina');
@@ -860,21 +891,20 @@ const OrdersPage: React.FC = () => {
     try {
       setErrorMsg(null);
       
-      // Actualizar el status a 'Pagado' (consistente con DashboardPage y RestaurantDetailsPage)
-      console.log('🔄 Cerrando orden:', order.id, 'Status actual:', order.status, 'Restaurant ID:', CURRENT_RESTAURANT?.id);
+      // ============================================
+      // PASO 1: Cambiar el status de la orden a 'Pagado'
+      // ============================================
+      // Esto activará el trigger que actualiza dashboard_daily_summary y dashboard_order_events
+      console.log('🔄 PASO 1: Cambiando status a "Pagado"...', order.id, 'Restaurant ID:', CURRENT_RESTAURANT?.id);
       
       // Intentar usar función RPC primero (si existe), si no, usar update directo
-      console.log('🔄 Cerrando orden:', order.id, 'Status actual:', order.status);
-      
-      // Intentar con función RPC (bypasea RLS)
       const { data: rpcResult, error: rpcError } = await supabase.rpc('close_order', {
         order_id: order.id,
         restaurant_id_param: CURRENT_RESTAURANT?.id || ''
       });
       
       if (!rpcError && rpcResult && !rpcResult.error) {
-        console.log('✅ Orden cerrada usando RPC:', rpcResult);
-        // La función RPC ya actualizó el status, continuar
+        console.log('✅ Status actualizado usando RPC:', rpcResult);
       } else {
         // Si la función RPC no existe o falla, intentar update directo
         console.log('⚠️ RPC no disponible, intentando update directo...');
@@ -895,11 +925,13 @@ const OrdersPage: React.FC = () => {
           throw new Error('La actualización no afectó ninguna fila. Esto indica un problema de políticas RLS. Por favor, ejecuta el SQL en supabase_rpc_function.sql en el SQL Editor de Supabase para crear la función RPC necesaria.');
         }
         
-        console.log('✅ Update ejecutado directamente:', updatedData[0]);
+        console.log('✅ Status actualizado directamente:', updatedData[0]);
       }
       
-      // Esperar un momento para que la actualización se propague
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Esperar a que el trigger se ejecute y actualice las tablas del dashboard
+      // El trigger se ejecuta automáticamente cuando cambia el status a 'Pagado'
+      console.log('⏳ Esperando a que el trigger actualice las tablas del dashboard...');
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Dar tiempo suficiente al trigger
       
       // Verificar que la actualización se guardó correctamente
       const { data: verifyOrder, error: verifyError } = await supabase
@@ -920,6 +952,13 @@ const OrdersPage: React.FC = () => {
         console.error('❌ El status no se actualizó correctamente. Status actual:', verifyOrder?.status);
         throw new Error(`El status no se actualizó. Status actual: ${verifyOrder?.status}, esperado: Pagado`);
       }
+
+      // ============================================
+      // PASO 2: El trigger ya actualizó dashboard_daily_summary y dashboard_order_events
+      // ============================================
+      // El trigger 'trg_record_dashboard_order_event' se ejecutó automáticamente
+      // cuando cambió el status a 'Pagado' en el PASO 1
+      console.log('✅ PASO 2: Trigger ejecutado - dashboard actualizado automáticamente');
 
       // Liberar la mesa
       if (order.table_id) {
@@ -944,10 +983,16 @@ const OrdersPage: React.FC = () => {
         console.log('✅ Mesa liberada correctamente:', updatedTable[0]);
       }
 
-      // Archivar la orden y todos sus datos relacionados
+      // ============================================
+      // PASO 3: Archivar la orden y todos sus datos relacionados
+      // ============================================
       // Esto mueve order_items, order_batches, order_guests a tablas de historial
       // y elimina los registros de las tablas activas para mantener el rendimiento
-      console.log('📦 Archivando orden y datos relacionados...');
+      // IMPORTANTE: Esto se hace DESPUÉS de que el trigger actualice el dashboard
+      console.log('📦 PASO 3: Archivando orden y datos relacionados...', {
+        order_id: order.id,
+        restaurant_id: CURRENT_RESTAURANT?.id
+      });
       
       try {
         const { data: archiveResult, error: archiveError } = await supabase.rpc('archive_order', {
@@ -955,14 +1000,29 @@ const OrdersPage: React.FC = () => {
           restaurant_id_param: CURRENT_RESTAURANT?.id || ''
         });
 
+        console.log('📦 Resultado del archivado:', { archiveResult, archiveError });
+
         if (archiveError) {
-          // Si el error es que la función no existe, solo loguear
-          if (archiveError.message?.includes('function') || archiveError.message?.includes('does not exist')) {
-            console.warn("⚠️ La función de archivado no está disponible. Ejecuta archive_order_function.sql en Supabase.");
-          } else {
-            console.error("❌ Error al archivar orden:", archiveError);
+          // Mostrar el error completo para debugging
+          console.error("❌ Error al archivar orden:", {
+            message: archiveError.message,
+            details: archiveError.details,
+            hint: archiveError.hint,
+            code: archiveError.code
+          });
+          
+          // Si el error es que la función no existe, mostrar mensaje claro
+          if (archiveError.message?.includes('function') || 
+              archiveError.message?.includes('does not exist') ||
+              archiveError.code === '42883') {
+            const errorMsg = "⚠️ La función de archivado no está disponible. Ejecuta archive_order_function.sql en Supabase SQL Editor.";
+            console.warn(errorMsg);
+            setErrorMsg(errorMsg);
             // No lanzamos error aquí porque la orden ya está cerrada
             // El archivado puede hacerse manualmente después si es necesario
+          } else {
+            // Otros errores también se muestran al usuario
+            setErrorMsg(`⚠️ La orden se cerró pero no se pudo archivar: ${archiveError.message}`);
           }
         } else if (archiveResult) {
           if (archiveResult.success) {
@@ -972,12 +1032,19 @@ const OrdersPage: React.FC = () => {
               archived_at: archiveResult.archived_at
             });
           } else {
-            console.warn("⚠️ El archivado no fue exitoso:", archiveResult.error || 'Error desconocido');
+            const errorMsg = `⚠️ El archivado no fue exitoso: ${archiveResult.error || 'Error desconocido'}`;
+            console.warn(errorMsg);
+            setErrorMsg(errorMsg);
           }
+        } else {
+          // No hay resultado ni error, algo raro pasó
+          console.warn("⚠️ El archivado no devolvió resultado ni error");
+          setErrorMsg("⚠️ La orden se cerró pero el archivado no devolvió resultado. Verifica en Supabase.");
         }
       } catch (archiveErr: any) {
         // Capturar cualquier error inesperado en el archivado
         console.error("❌ Error inesperado al archivar:", archiveErr);
+        setErrorMsg(`⚠️ Error inesperado al archivar: ${archiveErr.message || 'Error desconocido'}`);
         // No lanzamos error porque la orden ya está cerrada correctamente
       }
 
@@ -1019,7 +1086,7 @@ const OrdersPage: React.FC = () => {
           {/* Toggle Switch */}
           <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-gray-100 shadow-sm">
             <button
-              onClick={() => setShowClosedOrders(false)}
+              onClick={() => updateURL({ closed: null })}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
                 !showClosedOrders
                   ? 'bg-indigo-600 text-white shadow-md'
@@ -1029,7 +1096,7 @@ const OrdersPage: React.FC = () => {
               <BellRing size={14} /> Abiertas
             </button>
             <button
-              onClick={() => setShowClosedOrders(true)}
+              onClick={() => updateURL({ closed: 'true' })}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
                 showClosedOrders
                   ? 'bg-emerald-600 text-white shadow-md'
