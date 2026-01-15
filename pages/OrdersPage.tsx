@@ -35,7 +35,7 @@ const BatchCard: React.FC<{
 
   // Estado por defecto: si no existe en config, usar ENVIADO (estado inicial después de CREADO)
   const currentStatus = statusConfig[batch.status as keyof typeof statusConfig] || statusConfig['ENVIADO'];
-  
+
   const sortedItems = [...(batch.order_items || [])].sort((a, b) => 
     new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
@@ -75,28 +75,30 @@ const BatchCard: React.FC<{
           </div>
         </div>
 
-        <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
-          {currentStatus.next && (
-            <button 
-              onClick={() => onUpdateBatchStatus(batch.id, currentStatus.next!)}
-              className={`flex items-center gap-2 px-3 py-1.5 text-white rounded-xl font-black text-[9px] uppercase tracking-widest transition-all shadow-sm active:scale-95 ${
-                batch.status === 'ENVIADO' 
-                  ? 'bg-red-600 hover:bg-red-700'
-                  : batch.status === 'PREPARANDO'
-                  ? 'bg-indigo-600 hover:bg-indigo-700'
-                  : batch.status === 'LISTO'
-                  ? 'bg-green-600 hover:bg-green-700'
-                  : 'bg-indigo-600 hover:bg-indigo-700'
-              }`}
-            >
-              <currentStatus.icon size={10} /> {currentStatus.label}
-            </button>
-          )}
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isExpanded ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}>
-            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </div>
+        <div className="flex flex-col items-end gap-2" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center gap-3">
+            {currentStatus.next && (
+              <button 
+                onClick={() => onUpdateBatchStatus(batch.id, currentStatus.next!)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-white rounded-xl font-black text-[9px] uppercase tracking-widest transition-all shadow-sm active:scale-95 ${
+                  batch.status === 'ENVIADO' 
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : batch.status === 'PREPARANDO'
+                    ? 'bg-indigo-600 hover:bg-indigo-700'
+                    : batch.status === 'LISTO'
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-indigo-600 hover:bg-indigo-700'
+                }`}
+              >
+                <currentStatus.icon size={10} /> {currentStatus.label}
+              </button>
+            )}
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isExpanded ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}>
+              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </div>
         </div>
       </div>
+    </div>
 
       <div className={`transition-all duration-500 ease-in-out ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'} overflow-hidden`}>
         <div className="px-5 pb-5 pt-3 space-y-2">
@@ -167,20 +169,94 @@ const BatchCard: React.FC<{
 
 const OrderGroupCard: React.FC<{ 
   order: any, 
-  onCloseOrder: (order: any) => Promise<boolean>,
+  onCloseMesa: (order: any) => Promise<void>,
   onUpdateBatchStatus: (batchId: string, newStatus: string) => void,
   onMarkGuestAsPaid: (guestId: string) => void,
   markingGuestAsPaid: string | null,
   forceExpanded?: boolean,
   isClosed?: boolean
-}> = ({ order, onCloseOrder, onUpdateBatchStatus, onMarkGuestAsPaid, markingGuestAsPaid, forceExpanded = false, isClosed: propIsClosed = false }) => {
+}> = ({ order, onCloseMesa, onUpdateBatchStatus, onMarkGuestAsPaid, markingGuestAsPaid, forceExpanded = false, isClosed: propIsClosed = false }) => {
   // Inicializamos colapsado por defecto, a menos que se fuerce la expansión
   const [isCollapsed, setIsCollapsed] = useState(!forceExpanded);
-  const [isOrderClosed, setIsOrderClosed] = useState(propIsClosed);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
   // Filtrar lotes: no mostrar los que están en estado "CREADO"
   const batches = (order.order_batches || []).filter((batch: any) => batch.status !== 'CREADO');
+
+  // Para la lógica de estado, usar todos los batches (incluyendo CREADO)
+  const allBatches = order.order_batches || [];
+
+  // Calcular el estado de la mesa según los criterios:
+  // Abierta: Tiene batches en CREADO, ENVIADO, PREPARANDO y/o algún guest tiene paid=FALSE con individual_amount > 0
+  // Pagada: Todos los guests tienen paid=TRUE y order status='Pagado'
+  // Cerrada: Todos los batches en SERVIDO, todos los guests paid=TRUE y order status='CERRADO'
+  
+  const orderGuests = order.order_guests || [];
+  
+  // Verificar si hay batches en estados que indican que la mesa está abierta (usar allBatches para incluir CREADO)
+  // IMPORTANTE: Solo considerar batches que NO están en CREADO para determinar si la mesa está abierta
+  // Los batches en CREADO no cuentan como "abiertos" para la lógica de estado
+  const batchesForStatusCheck = allBatches.filter((b: any) => b.status !== 'CREADO');
+  const hasOpenBatches = batchesForStatusCheck.some((b: any) =>
+    ['ENVIADO', 'PREPARANDO'].includes(b.status)
+  );
+  
+  // Verificar si hay batches en CREADO para mostrar el mensaje "Pidiendo"
+  const hasBatchesCreado = allBatches.some((b: any) => b.status === 'CREADO');
+
+  // Verificar si todos los batches están en SERVIDO (excluyendo CREADO)
+  const batchesToCheck = allBatches.filter((b: any) => b.status !== 'CREADO');
+  const allBatchesServed = batchesToCheck.length === 0 || batchesToCheck.every((b: any) => b.status === 'SERVIDO');
+
+  // Calcular la suma de los individual_amount de los guests con paid=TRUE
+  const totalPaidAmount = orderGuests
+    .filter((g: any) => g.paid === true)
+    .reduce((sum: number, g: any) => sum + (Number(g.individual_amount) || 0), 0);
+
+  // Verificar si el total_amount es igual a la suma de los individual_amount de los guests pagados
+  const totalAmount = Number(order.total_amount) || 0;
+  const isTotalAmountPaid = totalAmount > 0 && Math.abs(totalPaidAmount - totalAmount) < 0.01; // Usar comparación con tolerancia para decimales
+
+  
+  // Verificar si hay guests sin pagar (paid=FALSE y individual_amount > 0)
+  // IMPORTANTE: Solo considerar como "sin pagar" si la suma de los pagados NO cubre el total
+  // Si el total ya está cubierto por los guests pagados, no importa si hay guests sin pagar
+  const hasUnpaidGuests = !isTotalAmountPaid && orderGuests.some((g: any) =>
+    g.paid === false && (Number(g.individual_amount) || 0) > 0
+  );
+  
+  
+  
+  // Verificar si todos los guests están pagados (para otros estados)
+  const allGuestsPaid = orderGuests.length === 0 || orderGuests.every((g: any) => g.paid === true);
+  
+  // Determinar el estado de la mesa según los criterios (con prioridad)
+  // PRIORIDAD 0: Si el status de la orden es 'CERRADO' → CERRADA (siempre, independientemente de batches o pagos)
+  let isMesaCerrada = order.status === 'CERRADO';
+  
+  // PRIORIDAD 1: Si hay batches abiertos (ENVIADO, PREPARANDO) o guests sin pagar → ABIERTA (siempre)
+  // NOTA: Los batches en CREADO NO cuentan como "abiertos" para esta lógica
+  // NOTA: Si la mesa ya está cerrada, no la marcamos como abierta
+  const isMesaAbierta = !isMesaCerrada && (hasOpenBatches || hasUnpaidGuests);
+  
+  // PRIORIDAD 2: Solo si NO hay batches abiertos ni guests sin pagar, verificar otros estados
+  let isMesaPagada = false;
+  let isMesaListaParaCerrar = false;
+  
+  if (!isMesaCerrada && !isMesaAbierta) {
+    // Si todos los batches están servidos Y el total_amount es igual a la suma de los individual_amount de los guests pagados
+    if (allBatchesServed && isTotalAmountPaid) {
+      // Si el status es 'Pagado' → PAGADA
+      if (order.status === 'Pagado') {
+        isMesaPagada = true;
+      }
+      // Si el status no es ninguno de esos → LISTA PARA CERRAR
+      else {
+        isMesaListaParaCerrar = true;
+      }
+    }
+  }
+  
+  // Para el mensaje y el botón, usamos estas variables
+  const isOrderClosed = order.status === 'CERRADO';
 
   // Sincronizar con forceExpanded cuando cambie externamente (nuevo pedido)
   useEffect(() => {
@@ -216,93 +292,39 @@ const OrderGroupCard: React.FC<{
               </div>
             </div>
           </div>
-          
-          <div className="flex items-center gap-3" onClick={e => e.stopPropagation()}>
-            {!isOrderClosed && !propIsClosed && (
+
+          <div className="flex flex-col items-end gap-2" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3">
+              <span className={`text-[10px] font-black uppercase tracking-widest ${
+                isMesaCerrada ? 'text-emerald-600' : isMesaPagada ? 'text-blue-600' : 'text-red-600'
+              }`}>
+                {isMesaCerrada ? 'MESA CERRADA' : isMesaPagada ? 'MESA PAGADA' : isMesaListaParaCerrar ? 'LISTA PARA CERRAR' : 'MESA ABIERTA'}
+              </span>
+              {isMesaListaParaCerrar && (
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await onCloseMesa(order);
+                  }}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-sm active:scale-95"
+                >
+                  Cerrar mesa
+                </button>
+              )}
               <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!isOrderClosed && !isClosing) {
-                    setShowConfirmModal(true);
-                  }
-                }}
-                disabled={isOrderClosed || propIsClosed || isClosing}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg transition-all ${
-                  isClosing
-                    ? 'bg-amber-600 text-white shadow-amber-100 cursor-wait'
-                    : 'bg-red-600 text-white hover:bg-red-700 shadow-red-100 active:scale-95 cursor-pointer'
-                }`}
+                onClick={() => setIsCollapsed(!isCollapsed)}
+                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${isCollapsed ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
               >
-                {isClosing ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" /> Cerrando...
-                  </>
-                ) : (
-                  <>
-                    <CircleDollarSign size={14} /> Cerrar Cuenta
-                  </>
-                )}
+                {isCollapsed ? <Maximize2 size={18} /> : <Minimize2 size={18} />}
               </button>
-            )}
-            {(isOrderClosed || propIsClosed) && (
-              <div className="flex items-center gap-2 px-5 py-3 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-100">
-                <CheckCircle2 size={14} /> Cuenta Cerrada
-              </div>
-            )}
-            <button 
-              onClick={() => setIsCollapsed(!isCollapsed)}
-              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${isCollapsed ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
-            >
-              {isCollapsed ? <Maximize2 size={18} /> : <Minimize2 size={18} />}
-            </button>
-          </div>
-          
-          {/* Modal de Confirmación */}
-          {showConfirmModal && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4" onClick={() => setShowConfirmModal(false)}>
-              <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
-                <div className="text-center mb-6">
-                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <AlertCircle className="text-red-600" size={32} />
-                  </div>
-                  <h3 className="text-2xl font-black text-slate-900 mb-2">¿Cerrar Cuenta?</h3>
-                  <p className="text-slate-600 font-medium">
-                    Estás a punto de cerrar la cuenta de la <span className="font-black text-indigo-600">Mesa {order.tables?.table_number}</span>
-                  </p>
-                  <p className="text-sm text-slate-500 mt-2">
-                    Total: <span className="font-black text-lg text-indigo-600">${Number(order.total_amount).toLocaleString('es-CL')}</span>
-                  </p>
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowConfirmModal(false)}
-                    className="flex-1 px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-200 transition-all"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={async () => {
-                      setShowConfirmModal(false);
-                      setIsClosing(true);
-                      const success = await onCloseOrder(order);
-                      if (success) {
-                        setIsOrderClosed(true);
-                        // Esperar un momento para que el usuario vea el cambio de estado antes de que la orden desaparezca
-                        setTimeout(() => {
-                          // El componente desaparecerá cuando fetchActiveOrders() se ejecute
-                        }, 2000);
-                      } else {
-                        setIsClosing(false);
-                      }
-                    }}
-                    className="flex-1 px-6 py-3 bg-red-600 text-white rounded-xl font-black text-sm uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
-                  >
-                    Confirmar
-                  </button>
-                </div>
-              </div>
             </div>
-          )}
+            {hasBatchesCreado && (
+              <span className="text-[9px] font-black uppercase tracking-widest text-amber-600">
+                Pidiendo
+              </span>
+            )}
+          </div>
+           
         </div>
       </div>
 
@@ -336,33 +358,44 @@ const OrderGroupCard: React.FC<{
               {batches.length} {batches.length === 1 ? 'Envío' : 'Envíos'}
             </div>
           </div>
-          
+
           {/* Detalle de división de pago por comensal */}
-          {order.order_guests?.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">División de Pago</p>
-              <div className="space-y-2">
-                {order.order_guests.map((guest: any) => {
+          {order.order_guests?.length > 0 && (() => {
+            // Filtrar comensales con saldo $0 si la suma del resto es igual al total
+            const guestsWithAmount = order.order_guests.filter((g: any) => (g.individual_amount || 0) > 0);
+            const sumOfGuestsWithAmount = guestsWithAmount.reduce((sum: number, g: any) => sum + (Number(g.individual_amount) || 0), 0);
+            const totalAmount = Number(order.total_amount || 0);
+            
+            // Si la suma de los comensales con monto es igual al total, ocultar los de $0
+            const guestsToShow = (sumOfGuestsWithAmount === totalAmount && totalAmount > 0)
+              ? guestsWithAmount
+              : order.order_guests;
+            
+            return guestsToShow.length > 0 ? (
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">División de Pago</p>
+                <div className="space-y-2">
+                  {guestsToShow.map((guest: any) => {
                   // Obtener payment_method desde order_guests (en tiempo real)
                   const paymentMethod = guest.payment_method?.toLowerCase() || null;
                   const guestTotal = guest.individual_amount || 0;
-                  
+
                   // Verificar si está pagado: solo usar el campo paid de order_guests
                   const isPaid = guest.paid === true;
-                  
+
                   // Obtener payment_id directamente de order_guests
                   const paymentId = guest.payment_id || null;
-                  
+
                   // Determinar si necesita pago manual (solo efectivo o transferencia)
                   // Para mercadopago, no mostrar botón, solo esperar que paid=true automáticamente
                   const needsManualPayment = paymentMethod && (
                     paymentMethod === 'efectivo' || 
                     paymentMethod === 'transferencia'
                   );
-                  
+
                   // Para mercadopago, no mostrar botón, solo el estado
                   const isMercadoPago = paymentMethod === 'mercadopago';
-                  
+
                   return (
                     <div 
                       key={guest.id} 
@@ -438,10 +471,11 @@ const OrderGroupCard: React.FC<{
                       </div>
                     </div>
                   );
-                })}
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            ) : null;
+          })()}
         </div>
       </div>
     </div>
@@ -457,6 +491,8 @@ const OrdersPage: React.FC = () => {
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const showClosedOrders = searchParams.get('closed') === 'true';
   const [markingGuestAsPaid, setMarkingGuestAsPaid] = useState<string | null>(null);
+  const [closingOrderId, setClosingOrderId] = useState<string | null>(null);
+  const [archivingOrders, setArchivingOrders] = useState(false);
   const bellAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const updateURL = (params: Record<string, string | null>) => {
@@ -473,7 +509,7 @@ const OrdersPage: React.FC = () => {
 
   useEffect(() => {
     bellAudioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-    
+
     fetchActiveOrders();
 
     const channel = supabase
@@ -560,35 +596,35 @@ const OrdersPage: React.FC = () => {
     if (!CURRENT_RESTAURANT?.id) return;
     try {
       setErrorMsg(null);
-      
+
       // Determinar qué tablas usar según el toggle
       const ordersTable = showClosedOrders ? 'orders_archive' : 'orders';
       const batchesTable = showClosedOrders ? 'order_batches_archive' : 'order_batches';
       const itemsTable = showClosedOrders ? 'order_items_archive' : 'order_items';
       const guestsTable = showClosedOrders ? 'order_guests_archive' : 'order_guests';
       const paymentsTable = showClosedOrders ? 'payments_archive' : 'payments';
-      
+
       // Construir la query según el toggle
       console.log('🔍 fetchActiveOrders - showClosedOrders:', showClosedOrders, 'ordersTable:', ordersTable);
-      
+
       let query = supabase
         .from(ordersTable)
         .select('*')
         .eq('restaurant_id', CURRENT_RESTAURANT.id);
-      
+
       if (showClosedOrders) {
         // Mostrar todas las órdenes archivadas (sin filtro de status)
         // Las órdenes archivadas ya están todas cerradas
         // No aplicamos ningún filtro adicional
         console.log('📦 Consultando orders_archive (sin filtros)');
       } else {
-        // Mostrar órdenes abiertas (ABIERTO o SOLICITADO)
-        query = query.or('status.eq.ABIERTO,status.eq.SOLICITADO');
-        console.log('📋 Consultando orders (con filtro ABIERTO/SOLICITADO)');
+        // Mostrar órdenes abiertas (ABIERTO, SOLICITADO, Pagado o CERRADO)
+        query = query.or('status.eq.ABIERTO,status.eq.SOLICITADO,status.eq.Pagado,status.eq.CERRADO');
+        console.log('📋 Consultando orders (con filtro ABIERTO/SOLICITADO/Pagado/CERRADO)');
       }
-      
+
       const { data: ordersData, error: ordersError } = await query;
-      
+
       // Debug: verificar qué tabla se está consultando
       console.log(`✅ Consulta completada. Tabla: ${ordersTable}, Órdenes encontradas:`, ordersData?.length || 0);
       if (ordersData && ordersData.length > 0) {
@@ -599,7 +635,7 @@ const OrdersPage: React.FC = () => {
       if (!ordersData) { setOrders([]); return; }
 
       const orderIds = ordersData.map(order => order.id);
-      
+
       // Obtener información de las mesas por separado (ya que no hay relación directa con orders_archive)
       const tableIds = [...new Set(ordersData.map(order => order.table_id).filter(Boolean))];
       let tablesData: any[] = [];
@@ -640,7 +676,7 @@ const OrdersPage: React.FC = () => {
           .in('batch_id', batchIds);
         if (itemsError) throw itemsError;
         itemsData = items || [];
-        
+
         // Obtener menu_items por separado si hay items
         if (itemsData.length > 0) {
           const menuItemIds = [...new Set(itemsData.map(item => item.menu_item_id).filter(Boolean))];
@@ -706,7 +742,7 @@ const OrdersPage: React.FC = () => {
         const latestBatchTime = orderBatches.length > 0 
           ? Math.max(...orderBatches.map((b: any) => new Date(b.created_at).getTime()))
           : new Date(order.created_at).getTime();
-        
+
         const lastActivity = Math.max(new Date(order.created_at).getTime(), latestBatchTime);
 
         // Obtener guests y payments para esta orden
@@ -772,12 +808,12 @@ const OrdersPage: React.FC = () => {
 
     try {
       const updateData: any = { status: newStatus };
-      
+
       // Si el nuevo estado es SERVIDO, guardar el timestamp
       if (newStatus === 'SERVIDO') {
         updateData.served_at = new Date().toISOString();
       }
-      
+
       const { data, error } = await supabase
         .from('order_batches')
         .update(updateData)
@@ -819,17 +855,17 @@ const OrdersPage: React.FC = () => {
       const { data: rpcData, error: rpcError } = await supabase.rpc('mark_guest_as_paid', {
         guest_id: guestId
       });
-      
+
       if (rpcError) {
         // Si la función RPC no existe o falla, intentar con update directo
         console.warn('Función RPC no disponible, intentando update directo:', rpcError.message);
-        
+
         const { data, error } = await supabase
           .from('order_guests')
           .update({ paid: true })
           .eq('id', guestId)
           .select();
-        
+
         if (error) {
           console.error('Error al actualizar order_guests:', error);
           setMarkingGuestAsPaid(null); // Desactivar loading en caso de error
@@ -845,7 +881,7 @@ const OrdersPage: React.FC = () => {
           return;
         }
       }
-      
+
       // Refrescar las órdenes para mostrar el cambio
       await fetchActiveOrders();
     } catch (err: any) {
@@ -863,18 +899,17 @@ const OrdersPage: React.FC = () => {
   const handleCloseOrder = async (order: any): Promise<boolean> => {
     const batches = order.order_batches || [];
     const orderGuests = order.order_guests || [];
-    
+
     // Filtrar batches que no sean 'CREADO' (solo considerar batches que ya fueron enviados)
-    const batchesToCheck = batches.filter((b: any) => b.status !== 'CREADO');
-    
+
     // Verificar que todos los batches (excluyendo 'CREADO') estén en 'SERVIDO'
     // Si hay batches para verificar, todos deben estar SERVIDO
     // Si solo hay batches con status 'CREADO', no hay nada que verificar
     const allServidos = batchesToCheck.length === 0 || batchesToCheck.every((b: any) => b.status === 'SERVIDO');
-    
+
     // Verificar que no haya batches con otros status (que no sean CREADO ni SERVIDO)
     const hasOtherStatus = batchesToCheck.some((b: any) => b.status !== 'SERVIDO');
-    
+
     // Verificar que todos los order_guests tengan paid=true
     const allPaid = orderGuests.length === 0 || orderGuests.every((g: any) => g.paid === true);
 
@@ -882,72 +917,73 @@ const OrdersPage: React.FC = () => {
       setErrorMsg("Para poder cerrar una mesa, asegurate que todos los lotes estén marcados como \"servido\"");
       return false;
     }
-    
+
     if (!allPaid) {
       setErrorMsg("Para poder cerrar una mesa, asegurate que todas las divisiones de pago estén marcadas como pagadas");
       return false;
     }
-    
+
     try {
       setErrorMsg(null);
-      
+
       // ============================================
       // PASO 1: Cambiar el status de la orden a 'Pagado'
       // ============================================
       // Esto activará el trigger que actualiza dashboard_daily_summary y dashboard_order_events
       console.log('🔄 PASO 1: Cambiando status a "Pagado"...', order.id, 'Restaurant ID:', CURRENT_RESTAURANT?.id);
-      
+
       // Intentar usar función RPC primero (si existe), si no, usar update directo
       const { data: rpcResult, error: rpcError } = await supabase.rpc('close_order', {
         order_id: order.id,
         restaurant_id_param: CURRENT_RESTAURANT?.id || ''
       });
-      
+
       if (!rpcError && rpcResult && !rpcResult.error) {
         console.log('✅ Status actualizado usando RPC:', rpcResult);
       } else {
         // Si la función RPC no existe o falla, intentar update directo
         console.log('⚠️ RPC no disponible, intentando update directo...');
-        
+
         const { error: orderError, data: updatedData } = await supabase
           .from('orders')
           .update({ status: 'Pagado' })
           .eq('id', order.id)
           .eq('restaurant_id', CURRENT_RESTAURANT?.id || '')
           .select('id, status');
-        
+
         if (orderError) {
           console.error("❌ Error updating order:", orderError);
           throw orderError;
         }
-        
+
         if (!updatedData || updatedData.length === 0) {
           throw new Error('La actualización no afectó ninguna fila. Esto indica un problema de políticas RLS. Por favor, ejecuta el SQL en supabase_rpc_function.sql en el SQL Editor de Supabase para crear la función RPC necesaria.');
         }
-        
+
         console.log('✅ Status actualizado directamente:', updatedData[0]);
       }
-      
+
       // Esperar a que el trigger se ejecute y actualice las tablas del dashboard
       // El trigger se ejecuta automáticamente cuando cambia el status a 'Pagado'
       console.log('⏳ Esperando a que el trigger actualice las tablas del dashboard...');
       await new Promise(resolve => setTimeout(resolve, 1000)); // Dar tiempo suficiente al trigger
-      
+
       // Verificar que la actualización se guardó correctamente
       const { data: verifyOrder, error: verifyError } = await supabase
         .from('orders')
         .select('id, status, restaurant_id')
         .eq('id', order.id)
         .eq('restaurant_id', CURRENT_RESTAURANT?.id || '')
-        .single();
-      
+      // Nota: No usamos .single() porque puede fallar si RLS bloquea el update
+        ;
+
       if (verifyError) {
         console.error("❌ Error verificando orden:", verifyError);
         throw new Error(`No se pudo verificar la actualización: ${verifyError.message}`);
       }
-      
+
       console.log('✅ Status verificado:', verifyOrder?.status);
-      
+
       if (verifyOrder?.status !== 'Pagado') {
         console.error('❌ El status no se actualizó correctamente. Status actual:', verifyOrder?.status);
         throw new Error(`El status no se actualizó. Status actual: ${verifyOrder?.status}, esperado: Pagado`);
@@ -969,17 +1005,17 @@ const OrdersPage: React.FC = () => {
           .eq('id', order.table_id)
           .eq('restaurant_id', CURRENT_RESTAURANT?.id || '')
           .select('id, status');
-        
+
         if (tableError) {
           console.error("❌ Error al liberar mesa:", tableError);
           throw new Error(`No se pudo liberar la mesa: ${tableError.message}`);
         }
-        
+
         if (!updatedTable || updatedTable.length === 0) {
           console.warn("⚠️ La actualización de la mesa no afectó ninguna fila");
           throw new Error('No se pudo actualizar el estado de la mesa. Verifica los permisos RLS.');
         }
-        
+
         console.log('✅ Mesa liberada correctamente:', updatedTable[0]);
       }
 
@@ -993,7 +1029,7 @@ const OrdersPage: React.FC = () => {
         order_id: order.id,
         restaurant_id: CURRENT_RESTAURANT?.id
       });
-      
+
       try {
         const { data: archiveResult, error: archiveError } = await supabase.rpc('archive_order', {
           order_id: order.id,
@@ -1010,7 +1046,7 @@ const OrdersPage: React.FC = () => {
             hint: archiveError.hint,
             code: archiveError.code
           });
-          
+
           // Si el error es que la función no existe, mostrar mensaje claro
           if (archiveError.message?.includes('function') || 
               archiveError.message?.includes('does not exist') ||
@@ -1052,7 +1088,7 @@ const OrdersPage: React.FC = () => {
       setTimeout(async () => {
         await fetchActiveOrders();
       }, 1500);
-      
+
       return true;
 
     } catch (err: any) {
@@ -1061,6 +1097,131 @@ const OrdersPage: React.FC = () => {
       return false;
     }
   };
+
+  const handleCloseMesa = async (order: any): Promise<void> => {
+    if (!CURRENT_RESTAURANT?.id) {
+      setErrorMsg("No hay restaurante seleccionado");
+      return;
+    }
+
+    try {
+      setClosingOrderId(order.id);
+      setErrorMsg(null);
+      console.log('🔄 Cerrando mesa - Cambiando status a "CERRADO"...', order.id);
+
+      // Usar la nueva función RPC para cerrar la orden
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('close_order_as_cerrado', {
+        order_id: order.id,
+        restaurant_id_param: CURRENT_RESTAURANT.id
+      });
+
+      if (rpcError) {
+        console.error("❌ Error al llamar la función RPC:", rpcError);
+        setErrorMsg("No se pudo cerrar la mesa: " + (rpcError.message || 'Error desconocido'));
+        
+        // Si la función no existe, mostrar mensaje específico
+        if (rpcError.message?.includes('function') || rpcError.message?.includes('does not exist') || rpcError.code === '42883') {
+          setErrorMsg("⚠️ La función de cerrar orden no está disponible. Ejecuta close_order_cerrado_function.sql en Supabase SQL Editor.");
+        }
+        return;
+      }
+
+      if (rpcResult && rpcResult.error) {
+        console.error("❌ Error en la función RPC:", rpcResult.error);
+        setErrorMsg("No se pudo cerrar la mesa: " + (rpcResult.error || 'Error desconocido'));
+        return;
+      }
+
+      if (!rpcResult) {
+        console.error("❌ La función RPC no devolvió resultado");
+        setErrorMsg("No se pudo cerrar la mesa: La función no devolvió resultado");
+        return;
+      }
+
+      console.log('✅ Orden cerrada usando RPC:', rpcResult);
+      
+      // Verificar que el status se actualizó correctamente
+      const validClosedStatuses = ['CERRADO', 'Pagado'];
+      if (rpcResult.status && !validClosedStatuses.includes(rpcResult.status)) {
+        console.error("❌ El status no se actualizó correctamente. Status actual:", rpcResult.status);
+        setErrorMsg(`El status no se actualizó. Status actual: ${rpcResult.status}, esperado: CERRADO o Pagado`);
+        return;
+      }
+
+      console.log(`✅ Orden cerrada correctamente con status: ${rpcResult.status || 'CERRADO'}`);
+      console.log('✅ Mesa cerrada correctamente');
+      
+      // Refrescar las órdenes
+      await fetchActiveOrders();
+    } catch (err: any) {
+      console.error("Error al cerrar la mesa:", err);
+      setErrorMsg("No se pudo cerrar la mesa: " + (err.message || 'Error desconocido'));
+    } finally {
+      setClosingOrderId(null);
+    }
+  };
+
+  const handleArchiveClosedOrders = async (): Promise<void> => {
+    if (!CURRENT_RESTAURANT?.id) {
+      setErrorMsg("No hay restaurante seleccionado");
+      return;
+    }
+
+    try {
+      setArchivingOrders(true);
+      setErrorMsg(null);
+      console.log('📦 Archivando órdenes cerradas...', CURRENT_RESTAURANT.id);
+
+      // Usar la función RPC para archivar todas las órdenes con status CERRADO
+      const { data: archiveResult, error: archiveError } = await supabase.rpc('archive_closed_orders', {
+        p_restaurant_id: CURRENT_RESTAURANT.id
+      });
+
+      if (archiveError) {
+        console.error("❌ Error al archivar órdenes:", archiveError);
+        setErrorMsg("No se pudieron archivar las órdenes: " + (archiveError.message || 'Error desconocido'));
+        
+        // Si la función no existe, mostrar mensaje específico
+        if (archiveError.message?.includes('function') || archiveError.message?.includes('does not exist') || archiveError.code === '42883') {
+          setErrorMsg("⚠️ La función de archivado no está disponible. Ejecuta archive_closed_orders_function.sql en Supabase SQL Editor.");
+        }
+        return;
+      }
+
+      if (archiveResult && archiveResult.error) {
+        console.error("❌ Error en la función RPC:", archiveResult.error);
+        setErrorMsg("No se pudieron archivar las órdenes: " + (archiveResult.error || 'Error desconocido'));
+        return;
+      }
+
+      if (!archiveResult) {
+        console.error("❌ La función RPC no devolvió resultado");
+        setErrorMsg("No se pudieron archivar las órdenes: La función no devolvió resultado");
+        return;
+      }
+
+      if (archiveResult.success) {
+        console.log('✅ Órdenes archivadas correctamente:', archiveResult);
+        const totalArchived = archiveResult.archived_orders || 0;
+        setErrorMsg(`✅ Se archivaron ${totalArchived} orden${totalArchived !== 1 ? 'es' : ''} correctamente`);
+        
+        // Refrescar las órdenes después de un breve delay
+        setTimeout(async () => {
+          await fetchActiveOrders();
+          setErrorMsg(null);
+        }, 2000);
+      } else {
+        console.error("❌ El archivado no fue exitoso:", archiveResult);
+        setErrorMsg(`⚠️ El archivado no fue exitoso: ${archiveResult.error || 'Error desconocido'}`);
+      }
+    } catch (err: any) {
+      console.error("Error al archivar órdenes:", err);
+      setErrorMsg("No se pudieron archivar las órdenes: " + (err.message || 'Error desconocido'));
+    } finally {
+      setArchivingOrders(false);
+    }
+  };
+
 
   if (loading) {
     return (
@@ -1073,16 +1234,38 @@ const OrdersPage: React.FC = () => {
 
   return (
     <div className="space-y-10 animate-in fade-in duration-700 pb-20">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="flex flex-col gap-6">
         <div>
+        {/* Título y subtítulo */}
           <h1 className="text-4xl font-black text-slate-900 tracking-tighter flex items-center gap-3">
             Kitchen Monitor <BellRing className="text-indigo-600 animate-pulse" size={32} />
           </h1>
           <p className="text-slate-500 mt-1 font-medium">
-            {showClosedOrders ? 'Órdenes cerradas y pagadas' : 'Operaciones activas en salón y cocina'}
+            {showClosedOrders ? 'Órdenes archivadas y pagadas' : 'Operaciones activas en salón y cocina'}
           </p>
         </div>
+        {/* Controles: Toggle y contador */}
         <div className="flex items-center gap-4">
+          {/* Botón Archivar (solo visible en vista Abiertas) */}
+          {!showClosedOrders && (
+            <button
+              onClick={handleArchiveClosedOrders}
+              disabled={archivingOrders}
+              className="px-4 py-2 bg-amber-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-amber-700 transition-all shadow-sm active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {archivingOrders ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Archivando...</span>
+                </>
+              ) : (
+                <>
+                  <Archive size={14} />
+                  <span>Archivar órdenes cerradas</span>
+                </>
+              )}
+            </button>
+          )}
           {/* Toggle Switch */}
           <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-gray-100 shadow-sm">
             <button
@@ -1103,7 +1286,7 @@ const OrdersPage: React.FC = () => {
                   : 'text-gray-500 hover:text-emerald-600'
               }`}
             >
-              <Archive size={14} /> Cerradas
+              <Archive size={14} /> Archivadas
             </button>
           </div>
           <div className={`min-w-[200px] px-6 py-4 rounded-2xl border border-gray-100 shadow-sm ${
@@ -1111,16 +1294,25 @@ const OrdersPage: React.FC = () => {
               ? 'bg-emerald-50 border-emerald-100' 
               : 'bg-indigo-50 border-indigo-100'
           }`}>
-            <div className={`text-3xl font-black tracking-tighter ${
-              showClosedOrders ? 'text-emerald-600' : 'text-indigo-600'
-            }`}>
-              {orders.length}
-            </div>
-            <div className={`text-[10px] font-black uppercase tracking-widest mt-1 ${
-              showClosedOrders ? 'text-emerald-600' : 'text-indigo-600'
-            }`}>
-              {showClosedOrders ? 'Órdenes Cerradas' : 'Mesas Activas'}
-            </div>
+            {toggleLoading ? (
+              <>
+                <div className="h-9 bg-gray-200 rounded-lg animate-pulse mb-2"></div>
+                <div className="h-3 bg-gray-200 rounded animate-pulse w-24"></div>
+              </>
+            ) : (
+              <>
+                <div className={`text-3xl font-black tracking-tighter ${
+                  showClosedOrders ? 'text-emerald-600' : 'text-indigo-600'
+                }`}>
+                  {orders.length}
+                </div>
+                <div className={`text-[10px] font-black uppercase tracking-widest mt-1 ${
+                  showClosedOrders ? 'text-emerald-600' : 'text-indigo-600'
+                }`}>
+                  {showClosedOrders ? 'Órdenes Archivadas' : 'Mesas Activas'}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -1169,7 +1361,7 @@ const OrdersPage: React.FC = () => {
             <OrderGroupCard 
               key={order.id} 
               order={order} 
-              onCloseOrder={handleCloseOrder}
+              onCloseMesa={handleCloseMesa}
               onUpdateBatchStatus={handleUpdateBatchStatus}
               onMarkGuestAsPaid={handleMarkGuestAsPaid}
               markingGuestAsPaid={markingGuestAsPaid}

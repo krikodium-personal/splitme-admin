@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, createContext, useContext } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { 
   LayoutDashboard, PlusCircle, List, Settings, LogOut, ShoppingBag, 
@@ -26,28 +26,92 @@ interface PaymentToast {
   dinerName?: string;
 }
 
-const SidebarLink = ({ to, icon: Icon, label }: { to: string, icon: any, label: string }) => {
+// Contexto para compartir el estado de nuevos batches
+interface NewBatchesContextType {
+  newBatchesByOrder: Set<string>;
+  clearNewBatches: () => void;
+  clearNewBatchForOrder: (orderId: string) => void;
+}
+
+const NewBatchesContext = createContext<NewBatchesContextType>({
+  newBatchesByOrder: new Set(),
+  clearNewBatches: () => {},
+  clearNewBatchForOrder: () => {}
+});
+
+const SidebarLink = ({ to, icon: Icon, label, badgeCount, onNavigate }: { to: string, icon: any, label: string, badgeCount?: number, onNavigate?: () => void }) => {
   const location = useLocation();
   const isActive = location.pathname === to;
+  const hasBadge = badgeCount !== undefined && badgeCount > 0;
+  
   return (
-    <Link to={to} className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${isActive ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-500 hover:bg-indigo-50 hover:text-indigo-600'}`}>
+    <Link 
+      to={to} 
+      onClick={() => {
+        if (onNavigate) {
+          onNavigate();
+        }
+      }}
+      className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-all relative ${isActive ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-500 hover:bg-indigo-50 hover:text-indigo-600'}`}
+    >
       <Icon size={20} />
       <span className="font-medium text-sm">{label}</span>
+      {hasBadge && (
+        <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"></span>
+      )}
     </Link>
   );
 };
 
 const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, restaurant: Restaurant | null }> = ({ children, profile, restaurant }) => {
+  const location = useLocation();
   const [toasts, setToasts] = useState<PaymentToast[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const paymentMethodAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [newBatchesCount, setNewBatchesCount] = useState(0);
+  const [newBatchesByOrder, setNewBatchesByOrder] = useState<Set<string>>(new Set());
+  const notifiedBatchesRef = useRef<Set<string>>(new Set()); // Para evitar notificar el mismo batch dos veces
+  
+  // Limpiar notificaciones cuando se está en la página de Pedidos
+  useEffect(() => {
+    if (location.pathname === '/orders') {
+      console.log('🧹 Limpiando notificaciones (estamos en /orders)');
+      setNewBatchesCount(0);
+      setNewBatchesByOrder(new Set());
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
-    // Alerta sonora "Ding" de stock
-    audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+    // Cargar sonidos desde Supabase Storage o usar URLs por defecto
+    const loadSounds = async () => {
+      try {
+        // Intentar cargar sonido de cambio de método de pago desde Storage
+        const { data: paymentMethodSoundUrl } = supabase.storage
+          .from('sounds')
+          .getPublicUrl('mixkit-software-interface-back-2575.wav');
+        
+        if (paymentMethodSoundUrl?.publicUrl) {
+          paymentMethodAudioRef.current = new Audio(paymentMethodSoundUrl.publicUrl);
+        } else {
+          // Fallback a URL por defecto si no existe en Storage
+          paymentMethodAudioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2703/2703-preview.mp3');
+        }
+      } catch (error) {
+        console.warn('No se pudo cargar sonido desde Storage, usando URL por defecto:', error);
+        paymentMethodAudioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2703/2703-preview.mp3');
+      }
+      
+      // Sonido de pagos recibidos (puedes también subirlo a Storage)
+      audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+    };
+    
+    loadSounds();
     
     if (restaurant?.id) {
-      const channel = supabase
-        .channel('admin-payment-alerts')
+      console.log('🎧 Configurando listeners para restaurante:', restaurant.id);
+      // Canal para pagos y métodos de pago
+      const paymentChannel = supabase
+        .channel(`admin-payment-alerts-${restaurant.id}`)
         .on('postgres_changes', {
           event: 'INSERT',
           schema: 'public',
@@ -73,16 +137,201 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
           setToasts(prev => [...prev, newToast]);
           setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 8000);
         })
-        .subscribe();
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'order_guests'
+        }, (payload) => {
+          // Verificar si cambió el payment_method
+          const oldPaymentMethod = payload.old?.payment_method;
+          const newPaymentMethod = payload.new?.payment_method;
+          
+          // Si el payment_method cambió y ahora tiene un valor (no es null)
+          if (oldPaymentMethod !== newPaymentMethod && newPaymentMethod) {
+            // Reproducir sonido de notificación de cambio de método de pago
+            if (paymentMethodAudioRef.current) {
+              paymentMethodAudioRef.current.currentTime = 0;
+              paymentMethodAudioRef.current.play().catch(() => {});
+            }
+          }
+        });
+      
+      // Suscribir el canal de pagos
+      paymentChannel.subscribe((status) => {
+        console.log('📡 Estado del canal de pagos:', status);
+      });
+      
+      // Canal separado para batches
+      const batchChannel = supabase
+        .channel(`admin-batch-notifications-${restaurant.id}-${Date.now()}`)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'order_batches'
+        }, async (payload) => {
+          const newBatch = payload.new;
+          const batchId = newBatch.id;
+          
+          console.log('🔔 Nuevo batch INSERT detectado:', batchId, 'status:', newBatch.status);
+          
+          // Solo notificar batches que no sean CREADO
+          if (newBatch.status === 'CREADO') {
+            console.log('⏭️ Batch ignorado (status CREADO)');
+            return;
+          }
+          
+          // Verificar si ya notificamos este batch
+          if (notifiedBatchesRef.current.has(batchId)) {
+            console.log('⏭️ Batch ya notificado anteriormente');
+            return;
+          }
+          
+          // Obtener la orden para verificar que pertenece al restaurante
+          if (newBatch.order_id) {
+            const { data: order, error } = await supabase
+              .from('orders')
+              .select('restaurant_id')
+              .eq('id', newBatch.order_id)
+              .single();
+            
+            console.log('📋 Orden encontrada:', order?.id, 'restaurant_id:', order?.restaurant_id, 'Error:', error);
+            
+            // Solo notificar si la orden pertenece al restaurante actual
+            if (order && order.restaurant_id === restaurant.id) {
+              // Marcar batch como notificado
+              notifiedBatchesRef.current.add(batchId);
+              
+              console.log('✅ Notificando nuevo batch para orden:', newBatch.order_id);
+              // Incrementar contador de nuevos batches
+              setNewBatchesCount(prev => {
+                const newCount = prev + 1;
+                console.log('🔴 Contador de batches:', newCount);
+                return newCount;
+              });
+              
+              // Agregar order_id al set de órdenes con nuevos batches
+              setNewBatchesByOrder(prev => {
+                const newSet = new Set(prev);
+                newSet.add(newBatch.order_id);
+                console.log('📝 Órdenes con nuevos batches:', Array.from(newSet));
+                return newSet;
+              });
+              
+              // Reproducir sonido de notificación
+              if (audioRef.current) {
+                audioRef.current.currentTime = 0;
+                audioRef.current.play().catch((err) => console.error('Error reproduciendo sonido:', err));
+              }
+            } else {
+              console.log('❌ Orden no pertenece al restaurante actual. Esperado:', restaurant.id, 'Encontrado:', order?.restaurant_id);
+            }
+          } else {
+            console.log('⚠️ Batch no tiene order_id');
+          }
+        })
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'order_batches'
+        }, async (payload) => {
+          const updatedBatch = payload.new;
+          const batchId = updatedBatch.id;
+          
+          console.log('🔄 Batch UPDATE detectado:', batchId, 'status:', updatedBatch.status);
+          
+          // Notificar si el batch tiene un status diferente a CREADO
+          // Esto captura cuando un batch cambia de CREADO a ENVIADO, PREPARANDO, etc.
+          if (updatedBatch.status && updatedBatch.status !== 'CREADO') {
+            // Verificar si ya notificamos este batch antes (evitar duplicados)
+            if (notifiedBatchesRef.current.has(batchId)) {
+              console.log('⏭️ Batch ya notificado anteriormente (UPDATE)');
+              return;
+            }
+            
+            console.log('✅ Batch tiene status', updatedBatch.status, '- Verificando orden...');
+            
+            // Obtener la orden para verificar que pertenece al restaurante
+            if (updatedBatch.order_id) {
+              const { data: order, error } = await supabase
+                .from('orders')
+                .select('restaurant_id')
+                .eq('id', updatedBatch.order_id)
+                .single();
+              
+              console.log('📋 Orden encontrada (UPDATE):', order?.id, 'restaurant_id:', order?.restaurant_id, 'Error:', error);
+              
+              // Solo notificar si la orden pertenece al restaurante actual
+              if (order && order.restaurant_id === restaurant.id) {
+                // Marcar batch como notificado
+                notifiedBatchesRef.current.add(batchId);
+                
+                console.log('✅ Notificando batch actualizado para orden:', updatedBatch.order_id);
+                // Incrementar contador de nuevos batches
+                setNewBatchesCount(prev => {
+                  const newCount = prev + 1;
+                  console.log('🔴 Contador de batches (UPDATE):', newCount);
+                  return newCount;
+                });
+                
+                // Agregar order_id al set de órdenes con nuevos batches
+                setNewBatchesByOrder(prev => {
+                  const newSet = new Set(prev);
+                  newSet.add(updatedBatch.order_id);
+                  console.log('📝 Órdenes con nuevos batches (UPDATE):', Array.from(newSet));
+                  return newSet;
+                });
+                
+                // Reproducir sonido de notificación
+                if (audioRef.current) {
+                  audioRef.current.currentTime = 0;
+                  audioRef.current.play().catch((err) => console.error('Error reproduciendo sonido:', err));
+                }
+              } else {
+                console.log('❌ Orden no pertenece al restaurante actual (UPDATE). Esperado:', restaurant.id, 'Encontrado:', order?.restaurant_id);
+              }
+            } else {
+              console.log('⚠️ Batch UPDATE no tiene order_id');
+            }
+          } else {
+            console.log('⏭️ Batch UPDATE ignorado - status es CREADO o no tiene status');
+          }
+        })
+        .subscribe((status) => {
+          console.log('📡 Estado del canal de batches:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('✅ Canal de batches suscrito correctamente');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('❌ Error en el canal de batches');
+          }
+        });
 
       return () => {
-        supabase.removeChannel(channel);
+        console.log('🔌 Desconectando canales');
+        supabase.removeChannel(batchChannel);
+        supabase.removeChannel(paymentChannel);
       };
+    } else {
+      console.log('⚠️ No hay restaurante configurado, no se configuran listeners');
     }
-  }, [restaurant]);
+  }, [restaurant?.id]); // Solo ejecutar cuando cambia el ID del restaurante, no el objeto completo
 
   const removeToast = (id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  const clearNewBatches = () => {
+    setNewBatchesCount(0);
+    setNewBatchesByOrder(new Set());
+    notifiedBatchesRef.current.clear(); // Limpiar también el ref de batches notificados
+  };
+
+  const clearNewBatchForOrder = (orderId: string) => {
+    setNewBatchesByOrder(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(orderId);
+      return newSet;
+    });
+    setNewBatchesCount(prev => Math.max(0, prev - 1));
   };
 
   const handleLogout = async () => {
@@ -133,7 +382,19 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
             ) : (
               <>
                 <SidebarLink to="/" icon={LayoutDashboard} label="Dashboard" />
-                <SidebarLink to="/orders" icon={ShoppingBag} label="Pedidos" />
+                <SidebarLink 
+                  to="/orders" 
+                  icon={ShoppingBag} 
+                  label="Pedidos" 
+                  badgeCount={newBatchesCount > 0 ? newBatchesCount : undefined} 
+                  onNavigate={() => {
+                    // Limpiar notificaciones cuando se navega a Pedidos
+                    if (location.pathname !== '/orders') {
+                      console.log('🧹 Limpiando notificaciones al navegar a Pedidos');
+                      clearNewBatches();
+                    }
+                  }}
+                />
                 <SidebarLink to="/menu" icon={List} label="Productos" />
                 <SidebarLink to="/tables" icon={Grid} label="Mesas" />
                 <SidebarLink to="/waiters" icon={Users} label="Meseros" />
@@ -163,12 +424,17 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
               <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.id}`} className="w-8 h-8 rounded-full border-2 border-indigo-100" />
             </div>
           </header>
-          <div className="p-8">{children}</div>
+          <NewBatchesContext.Provider value={{ newBatchesByOrder, clearNewBatches, clearNewBatchForOrder }}>
+            <div className="p-8">{children}</div>
+          </NewBatchesContext.Provider>
         </main>
       </div>
     </div>
   );
 };
+
+// Hook para usar el contexto de nuevos batches
+export const useNewBatches = () => useContext(NewBatchesContext);
 
 const App: React.FC = () => {
   const [profile, setProfile] = useState<Profile | null>(null);
