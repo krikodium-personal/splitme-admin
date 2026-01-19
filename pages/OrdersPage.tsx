@@ -212,45 +212,49 @@ const OrderGroupCard: React.FC<{
     .filter((g: any) => g.paid === true)
     .reduce((sum: number, g: any) => sum + (Number(g.individual_amount) || 0), 0);
 
-  // Verificar si el total_amount es igual a la suma de los individual_amount de los guests pagados
   const totalAmount = Number(order.total_amount) || 0;
-  const isTotalAmountPaid = totalAmount > 0 && Math.abs(totalPaidAmount - totalAmount) < 0.01; // Usar comparación con tolerancia para decimales
+  // Tolerancia para redondeos: al menos 1 unidad o 0.5% del total (útil en CLP y otros)
+  const amountTolerance = Math.max(1, totalAmount * 0.005);
+  const isTotalAmountPaid = totalAmount > 0 && Math.abs(totalPaidAmount - totalAmount) <= amountTolerance;
 
-  
+  // Todos los guests con individual_amount > 0 tienen paid=TRUE (todos los que debían pagar ya pagaron)
+  const allGuestsWithAmountPaid = orderGuests
+    .filter((g: any) => (Number(g.individual_amount) || 0) > 0)
+    .every((g: any) => g.paid === true);
+
   // Verificar si hay guests sin pagar (paid=FALSE y individual_amount > 0)
   // IMPORTANTE: Solo considerar como "sin pagar" si la suma de los pagados NO cubre el total
   // Si el total ya está cubierto por los guests pagados, no importa si hay guests sin pagar
   const hasUnpaidGuests = !isTotalAmountPaid && orderGuests.some((g: any) =>
     g.paid === false && (Number(g.individual_amount) || 0) > 0
   );
-  
-  
-  
+
   // Verificar si todos los guests están pagados (para otros estados)
   const allGuestsPaid = orderGuests.length === 0 || orderGuests.every((g: any) => g.paid === true);
-  
+
   // Determinar el estado de la mesa según los criterios (con prioridad)
   // PRIORIDAD 0: Si el status de la orden es 'CERRADO' → CERRADA (siempre, independientemente de batches o pagos)
   let isMesaCerrada = order.status === 'CERRADO';
-  
+
   // PRIORIDAD 1: Si hay batches abiertos (ENVIADO, PREPARANDO) o guests sin pagar → ABIERTA (siempre)
   // NOTA: Los batches en CREADO NO cuentan como "abiertos" para esta lógica
   // NOTA: Si la mesa ya está cerrada, no la marcamos como abierta
   const isMesaAbierta = !isMesaCerrada && (hasOpenBatches || hasUnpaidGuests);
-  
+
   // PRIORIDAD 2: Solo si NO hay batches abiertos ni guests sin pagar, verificar otros estados
   let isMesaPagada = false;
   let isMesaListaParaCerrar = false;
-  
+
   if (!isMesaCerrada && !isMesaAbierta) {
-    // Si todos los batches están servidos Y el total_amount es igual a la suma de los individual_amount de los guests pagados
-    if (allBatchesServed && isTotalAmountPaid) {
-      // Si el status es 'Pagado' → PAGADA
+    // Condición principal: todos los batches servidos Y (total cubierto por pagados O todos los que debían pagar ya pagaron)
+    const canBePagadaOLista = allBatchesServed && (
+      isTotalAmountPaid ||
+      (totalAmount > 0 && allGuestsWithAmountPaid)
+    );
+    if (canBePagadaOLista) {
       if (order.status === 'Pagado') {
         isMesaPagada = true;
-      }
-      // Si el status no es ninguno de esos → LISTA PARA CERRAR
-      else {
+      } else {
         isMesaListaParaCerrar = true;
       }
     }
