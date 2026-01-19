@@ -4,7 +4,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate, Navigate 
 import { 
   LayoutDashboard, PlusCircle, List, Settings, LogOut, ShoppingBag, 
   Store, Users, Grid, AlertTriangle, Loader2, Globe, ShieldCheck, RefreshCw,
-  MessageSquareQuote, BarChart3, Bell, X, CheckCircle2, DollarSign
+  MessageSquareQuote, BarChart3, Bell, X, CheckCircle2, DollarSign, Menu
 } from 'lucide-react';
 import CreateItemPage from './pages/CreateItemPage';
 import MenuListPage from './pages/MenuListPage';
@@ -39,7 +39,7 @@ const NewBatchesContext = createContext<NewBatchesContextType>({
   clearNewBatchForOrder: () => {}
 });
 
-const SidebarLink = ({ to, icon: Icon, label, badgeCount, onNavigate }: { to: string, icon: any, label: string, badgeCount?: number, onNavigate?: () => void }) => {
+const SidebarLink = ({ to, icon: Icon, label, badgeCount, onNavigate, onMobileClick }: { to: string, icon: any, label: string, badgeCount?: number, onNavigate?: () => void, onMobileClick?: () => void }) => {
   const location = useLocation();
   const isActive = location.pathname === to;
   const hasBadge = badgeCount !== undefined && badgeCount > 0;
@@ -50,6 +50,9 @@ const SidebarLink = ({ to, icon: Icon, label, badgeCount, onNavigate }: { to: st
       onClick={() => {
         if (onNavigate) {
           onNavigate();
+        }
+        if (onMobileClick) {
+          onMobileClick();
         }
       }}
       className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-all relative ${isActive ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-500 hover:bg-indigo-50 hover:text-indigo-600'}`}
@@ -66,6 +69,7 @@ const SidebarLink = ({ to, icon: Icon, label, badgeCount, onNavigate }: { to: st
 const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, restaurant: Restaurant | null }> = ({ children, profile, restaurant }) => {
   const location = useLocation();
   const [toasts, setToasts] = useState<PaymentToast[]>([]);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const paymentMethodAudioRef = useRef<HTMLAudioElement | null>(null);
   const [newBatchesCount, setNewBatchesCount] = useState(0);
@@ -370,6 +374,114 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
         ))}
       </div>
 
+      {/* Overlay para cerrar el menú móvil */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 md:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Menú móvil */}
+      <aside 
+        className={`fixed top-0 left-0 h-full w-64 bg-white border-r border-gray-100 z-50 transform transition-transform duration-300 ease-in-out md:hidden flex flex-col p-6 ${
+          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex items-center justify-between mb-10">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg">S</div>
+            <span className="text-xl font-bold text-gray-800 tracking-tight">Splitme</span>
+          </div>
+          <button
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            aria-label="Cerrar menú"
+          >
+            <X size={24} className="text-gray-700" />
+          </button>
+        </div>
+        <nav className="space-y-2 flex-1">
+          {profile?.role === 'super_admin' ? (
+            <SidebarLink 
+              to="/super-admin" 
+              icon={Globe} 
+              label="Vista Global" 
+              onMobileClick={() => setIsMobileMenuOpen(false)}
+            />
+          ) : (
+            <>
+              <SidebarLink 
+                to="/" 
+                icon={LayoutDashboard} 
+                label="Dashboard" 
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+              <SidebarLink 
+                to="/orders" 
+                icon={ShoppingBag} 
+                label="Pedidos" 
+                badgeCount={newBatchesCount > 0 ? newBatchesCount : undefined} 
+                onNavigate={() => {
+                  // Limpiar notificaciones cuando se navega a Pedidos
+                  if (location.pathname !== '/orders') {
+                    console.log('🧹 Limpiando notificaciones al navegar a Pedidos');
+                    clearNewBatches();
+                  }
+                }}
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+              <SidebarLink 
+                to="/menu" 
+                icon={List} 
+                label="Productos" 
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+              <SidebarLink 
+                to="/tables" 
+                icon={Grid} 
+                label="Mesas" 
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+              <SidebarLink 
+                to="/waiters" 
+                icon={Users} 
+                label="Meseros" 
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+              <SidebarLink 
+                to="/feedback" 
+                icon={BarChart3} 
+                label="Calidad" 
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+              <SidebarLink 
+                to="/create" 
+                icon={PlusCircle} 
+                label="Añadir" 
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+              <SidebarLink 
+                to="/settings" 
+                icon={Settings} 
+                label="Configuración" 
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+            </>
+          )}
+        </nav>
+        <button 
+          onClick={() => {
+            handleLogout();
+            setIsMobileMenuOpen(false);
+          }} 
+          className="flex items-center space-x-3 text-gray-400 hover:text-red-500 transition-colors p-4 mt-auto"
+        >
+          <LogOut size={20} />
+          <span className="font-medium text-sm">Salir</span>
+        </button>
+      </aside>
+
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-64 bg-white border-r border-gray-100 hidden md:flex flex-col p-6">
           <div className="flex items-center space-x-3 mb-10">
@@ -411,13 +523,20 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
         </aside>
 
         <main className="flex-1 overflow-y-auto">
-          <header className="bg-white border-b border-gray-100 px-8 py-4 sticky top-0 z-40 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <header className="bg-white border-b border-gray-100 px-4 md:px-8 py-4 sticky top-0 z-40 flex items-center justify-between">
+            <div className="flex items-center gap-3 md:gap-2">
+              <button
+                onClick={() => setIsMobileMenuOpen(true)}
+                className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                aria-label="Abrir menú"
+              >
+                <Menu size={24} className="text-gray-700" />
+              </button>
               {restaurant && <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold border border-indigo-100">{restaurant.name}</span>}
               {!restaurant && profile?.role === 'super_admin' && <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-gray-200">Panel Central</span>}
             </div>
             <div className="flex items-center gap-3">
-              <div className="text-right">
+              <div className="text-right hidden sm:block">
                 <p className="text-xs font-bold text-gray-800">{profile?.full_name}</p>
                 <p className="text-[10px] text-gray-400 uppercase font-black">{profile?.role}</p>
               </div>
