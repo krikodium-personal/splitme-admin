@@ -4,7 +4,7 @@ import {
   ShoppingBag, Clock, CheckCircle2, Utensils, Hash, 
   MessageSquare, Play, Check, CircleDollarSign, 
   Timer, AlertCircle, Loader2, ChevronDown, ChevronUp, BellRing, X,
-  Maximize2, Minimize2, Archive, CheckCircle
+  Maximize2, Minimize2, Archive, CheckCircle, Copy
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../supabase';
@@ -178,6 +178,7 @@ const OrderGroupCard: React.FC<{
 }> = ({ order, onCloseMesa, onUpdateBatchStatus, onMarkGuestAsPaid, markingGuestAsPaid, forceExpanded = false, isClosed: propIsClosed = false }) => {
   // Inicializamos colapsado por defecto, a menos que se fuerce la expansión
   const [isCollapsed, setIsCollapsed] = useState(!forceExpanded);
+  const [copiedPaymentId, setCopiedPaymentId] = useState<string | null>(null);
   // Filtrar lotes: no mostrar los que están en estado "CREADO"
   const batches = (order.order_batches || []).filter((batch: any) => batch.status !== 'CREADO');
 
@@ -413,39 +414,40 @@ const OrderGroupCard: React.FC<{
                           </span>
                         </div>
                         {paymentMethod && (
-                          <p className="text-[9px] text-slate-500 font-medium">
-                            Método: <span className="font-black text-slate-700 capitalize">{paymentMethod}</span>
+                          <>
+                            <p className="text-[9px] text-slate-500 font-medium">
+                              Método: <span className="font-black text-slate-700 capitalize">{paymentMethod}</span>
+                            </p>
                             {isMercadoPago && isPaid && paymentId && (
-                              <span className="ml-2 text-indigo-600">ID: {paymentId}</span>
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <span className="text-[9px] text-indigo-600">ID: {paymentId}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(paymentId);
+                                    setCopiedPaymentId(paymentId);
+                                    setTimeout(() => setCopiedPaymentId(null), 1500);
+                                  }}
+                                  className="p-0.5 rounded hover:bg-gray-100 text-indigo-600"
+                                  title="Copiar ID"
+                                >
+                                  {copiedPaymentId === paymentId ? <Check size={12} /> : <Copy size={12} />}
+                                </button>
+                              </div>
                             )}
-                          </p>
+                          </>
                         )}
                       </div>
                       <div className="flex items-center gap-3 ml-4">
                         <div className="text-right">
-                          <p className="text-lg font-black text-indigo-600">
+                          <p className="text-lg font-black text-indigo-600 flex items-center justify-end gap-2 flex-wrap">
                             ${Number(guestTotal).toLocaleString('es-CL')}
+                            {isPaid && <span className="text-emerald-600 font-black text-[9px] uppercase tracking-widest">PAGADO</span>}
                           </p>
-                          {paymentMethod && (
-                            <p className="text-[9px] text-slate-500 font-medium capitalize">
-                              {isMercadoPago && isPaid && paymentId ? (
-                                <span className="text-indigo-600 font-black">ID: {paymentId}</span>
-                              ) : (
-                                paymentMethod
-                              )}
-                            </p>
-                          )}
                         </div>
-                        {/* Mostrar botón solo para efectivo o transferencia */}
+                        {/* Mostrar botón solo para efectivo o transferencia cuando no está pagado */}
                         {needsManualPayment && (
-                          isPaid ? (
-                            <button
-                              disabled
-                              className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest transition-all shadow-sm whitespace-nowrap cursor-default"
-                            >
-                              PAGADO
-                            </button>
-                          ) : !propIsClosed ? (
+                          !isPaid && !propIsClosed ? (
                             <button
                               onClick={() => onMarkGuestAsPaid(guest.id)}
                               disabled={markingGuestAsPaid === guest.id}

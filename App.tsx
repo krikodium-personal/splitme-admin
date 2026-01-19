@@ -389,9 +389,17 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
         }`}
       >
         <div className="flex items-center justify-between mb-10">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg">S</div>
-            <span className="text-xl font-bold text-gray-800 tracking-tight">Splitme</span>
+          <div className="flex items-center space-x-3 min-w-0 flex-1">
+            {restaurant?.logo_url ? (
+              <div className="w-[100px] h-[100px] rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center border border-gray-100">
+                <img src={restaurant.logo_url} alt={restaurant.name} className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <>
+                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shrink-0">S</div>
+                <span className="text-xl font-bold text-gray-800 tracking-tight">Splitme</span>
+              </>
+            )}
           </div>
           <button
             onClick={() => setIsMobileMenuOpen(false)}
@@ -484,9 +492,17 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
 
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-64 bg-white border-r border-gray-100 hidden md:flex flex-col p-6">
-          <div className="flex items-center space-x-3 mb-10">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg">S</div>
-            <span className="text-xl font-bold text-gray-800 tracking-tight">Splitme</span>
+          <div className="flex items-center space-x-3 mb-10 min-w-0">
+            {restaurant?.logo_url ? (
+              <div className="w-[100px] h-[100px] rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center border border-gray-100">
+                <img src={restaurant.logo_url} alt={restaurant.name} className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <>
+                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shrink-0">S</div>
+                <span className="text-xl font-bold text-gray-800 tracking-tight">Splitme</span>
+              </>
+            )}
           </div>
           <nav className="space-y-2 flex-1">
             {profile?.role === 'super_admin' ? (
@@ -548,6 +564,10 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
           </NewBatchesContext.Provider>
         </main>
       </div>
+
+      <footer className="py-3 text-center text-xs text-gray-400 border-t border-gray-100 bg-white">
+        Powered by Splitme
+      </footer>
     </div>
   );
 };
