@@ -1,0 +1,11 @@
+---
+description: Deploy a GitHub - subir version y hacer push
+alwaysApply: false
+---
+
+# Deploy a GitHub
+
+Cuando el usuario pida "deploy a github", "subir a github" o similar:
+
+1. **Subir versión**: Ejecutar `npm version patch --no-git-tag-version` para incrementar la versión en package.json (1.0.0 → 1.0.1).
+2. **Commit y push**: Incluir package.json en el commit con mensaje que mencione la nueva versión, y hacer push a origin main.

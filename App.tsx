@@ -566,7 +566,7 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
       </div>
 
       <footer className="py-3 text-center text-xs text-gray-400 border-t border-gray-100 bg-white">
-        Powered by Splitme
+        Powered by Splitme <span className="text-gray-300 ml-1">· v{import.meta.env.VITE_APP_VERSION ?? '1.0.0'}</span>
       </footer>
     </div>
   );
