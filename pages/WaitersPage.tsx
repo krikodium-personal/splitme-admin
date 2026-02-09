@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, UserPlus, Camera, Star, Calendar, Clock, 
-  Trash2, CheckCircle2, X, Plus, ChevronRight, Store, Grid, Edit3, Info
+  Trash2, CheckCircle2, X, Plus, ChevronRight, Store, Grid, Edit3, Info, Mail, Lock, Eye, EyeOff
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase, isSupabaseConfigured } from '../supabase';
@@ -18,6 +18,8 @@ interface Waiter {
   average_rating: number;
   is_active: boolean;
   alias_tip?: string;
+  email?: string | null;
+  user_id?: string | null;
   created_at?: string;
 }
 
@@ -45,6 +47,7 @@ const WaitersPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Estados para Edición
@@ -56,7 +59,9 @@ const WaitersPage: React.FC = () => {
     nickname: '',
     start_date: new Date().toISOString().split('T')[0],
     is_active: true,
-    alias_tip: ''
+    alias_tip: '',
+    email: '',
+    password: ''
   });
 
   useEffect(() => {
@@ -102,7 +107,9 @@ const WaitersPage: React.FC = () => {
       nickname: waiter.nickname,
       start_date: waiter.start_date,
       is_active: waiter.is_active,
-      alias_tip: waiter.alias_tip || ''
+      alias_tip: waiter.alias_tip || '',
+      email: waiter.email || '',
+      password: '' // No prellenar por seguridad
     });
     setPreviewUrl(waiter.profile_photo_url);
     
@@ -124,11 +131,14 @@ const WaitersPage: React.FC = () => {
       nickname: '',
       start_date: new Date().toISOString().split('T')[0],
       is_active: true,
-      alias_tip: ''
+      alias_tip: '',
+      email: '',
+      password: ''
     });
     setPreviewUrl(null);
     setSelectedFile(null);
     setSelectedTablesInForm([]);
+    setShowPassword(false);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -137,6 +147,20 @@ const WaitersPage: React.FC = () => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+  };
+
+  const handleCreateWaiterAuth = async (waiterId: string, email: string, password: string): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('create-waiter-auth', {
+        body: { waiter_id: waiterId, email, password }
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return true;
+    } catch (err: any) {
+      console.error('Error al crear credenciales:', err);
+      throw err;
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -184,6 +208,7 @@ const WaitersPage: React.FC = () => {
         photoUrl = await uploadProfilePhoto(selectedFile);
       }
 
+      const emailValue = formData.email?.trim() || null;
       const waiterPayload = {
         restaurant_id: CURRENT_RESTAURANT.id,
         full_name: formData.full_name,
@@ -191,27 +216,44 @@ const WaitersPage: React.FC = () => {
         profile_photo_url: photoUrl,
         start_date: formData.start_date,
         is_active: formData.is_active,
-        alias_tip: formData.alias_tip || null
+        alias_tip: formData.alias_tip || null,
+        ...(emailValue !== null && { email: emailValue })
       };
 
       let waiterId = editingWaiterId;
 
       if (editingWaiterId) {
         // Actualizar Mesero Existente
-        const { error } = await supabase
+        let { error } = await supabase
           .from('waiters')
           .update(waiterPayload)
-          .eq('id', editingWaiterId);
-        if (error) throw error;
+          .eq('id', editingWaiterId)
+          .select();
+        if (error && (error.message?.includes('email') || error.message?.includes('column'))) {
+          const { email: _e, ...payloadSinEmail } = waiterPayload;
+          const res = await supabase.from('waiters').update(payloadSinEmail).eq('id', editingWaiterId).select();
+          if (res.error) throw res.error;
+          alert('Datos guardados. Para email/contraseña ejecuta add_waiter_credentials_columns.sql en Supabase SQL Editor.');
+        } else if (error) {
+          throw error;
+        }
       } else {
         // Crear Nuevo Mesero
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('waiters')
           .insert([{ ...waiterPayload, average_rating: 5.0 }])
           .select()
           .single();
-        if (error) throw error;
-        waiterId = data.id;
+        if (error && (error.message?.includes('email') || error.message?.includes('column'))) {
+          const { email: _e, ...payloadSinEmail } = waiterPayload;
+          const res = await supabase.from('waiters').insert([{ ...payloadSinEmail, average_rating: 5.0 }]).select().single();
+          if (res.error) throw res.error;
+          data = res.data;
+          alert('Mesero creado. Para email/contraseña ejecuta add_waiter_credentials_columns.sql en Supabase SQL Editor.');
+        } else if (error) {
+          throw error;
+        }
+        waiterId = data!.id;
       }
 
       // SINCRONIZACIÓN DE MESAS
@@ -227,6 +269,15 @@ const WaitersPage: React.FC = () => {
           .from('tables')
           .update({ waiter_id: waiterId })
           .in('id', selectedTablesInForm);
+      }
+
+      // 3. Crear credenciales para app splitme-waiter (email + contraseña)
+      if (formData.email?.trim() && formData.password) {
+        try {
+          await handleCreateWaiterAuth(waiterId, formData.email.trim(), formData.password);
+        } catch (authErr: any) {
+          alert(`Mesero guardado correctamente, pero no se pudieron crear las credenciales de acceso: ${authErr.message}. Ejecuta add_waiter_credentials_columns.sql en Supabase y despliega la Edge Function create-waiter-auth.`);
+        }
       }
 
       closeForm();
@@ -445,6 +496,51 @@ const WaitersPage: React.FC = () => {
                     className="w-full bg-gray-50 border-transparent border-2 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm"
                   />
                   <p className="text-[9px] text-gray-400 ml-1">Campo opcional. Alias alfanumérico para recibir propinas</p>
+                </div>
+
+                <div className="pt-4 border-t border-gray-100 space-y-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500 ml-1">Acceso app Splitme Meseros</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
+                        <Mail size={12} /> Email
+                      </label>
+                      <input 
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleInputChange}
+                        placeholder="mesero@restaurante.com"
+                        className="w-full bg-gray-50 border-transparent border-2 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1 flex items-center gap-2">
+                        <Lock size={12} /> Contraseña
+                      </label>
+                      <div className="relative">
+                        <input 
+                          type={showPassword ? "text" : "password"}
+                          name="password"
+                          value={formData.password}
+                          onChange={handleInputChange}
+                          placeholder={editingWaiterId ? "Dejar en blanco para no cambiar" : "Mín. 6 caracteres"}
+                          className="w-full bg-gray-50 border-transparent border-2 rounded-2xl px-5 py-4 pr-12 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                          title={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                        >
+                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
+                      <p className="text-[9px] text-gray-400 ml-1">
+                        {editingWaiterId && formData.email ? "Opcional. Solo completar para crear o cambiar credenciales" : "Requerido junto con email para que el mesero acceda a la app"}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
