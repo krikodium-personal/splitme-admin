@@ -246,11 +246,9 @@ const OrderGroupCard: React.FC<{
   let isMesaListaParaCerrar = false;
 
   if (!isMesaCerrada && !isMesaAbierta) {
-    // Condición principal: todos los batches servidos Y (total cubierto por pagados O todos los que debían pagar ya pagaron)
-    const canBePagadaOLista = allBatchesServed && (
-      isTotalAmountPaid ||
-      (totalAmount > 0 && allGuestsWithAmountPaid)
-    );
+    // Condición principal: todos los batches servidos Y el total cubierto por los pagos de los comensales
+    // isTotalAmountPaid es obligatorio cuando hay monto: la suma de lo pagado por guests debe cubrir order.total_amount
+    const canBePagadaOLista = allBatchesServed && (totalAmount <= 0 || isTotalAmountPaid);
     if (canBePagadaOLista) {
       if (order.status === 'Pagado') {
         isMesaPagada = true;
