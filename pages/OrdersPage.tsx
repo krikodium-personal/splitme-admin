@@ -322,6 +322,16 @@ const OrderGroupCard: React.FC<{
                 <span className="mx-0.5 opacity-20">•</span>
                 <Hash size={10} /> {order.id.slice(0, 6).toUpperCase()}
               </div>
+              {order.tables?.waiters && (
+                <div className="flex items-center gap-2 mt-2">
+                  <img
+                    src={order.tables.waiters.profile_photo_url || 'https://picsum.photos/seed/waiter/64/64'}
+                    alt={order.tables.waiters.full_name}
+                    className="w-6 h-6 rounded-full object-cover border border-gray-200"
+                  />
+                  <span className="text-[10px] font-bold text-slate-600">{order.tables.waiters.full_name}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -675,7 +685,7 @@ const OrdersPage: React.FC = () => {
       if (tableIds.length > 0) {
         const { data: tables, error: tablesError } = await supabase
           .from('tables')
-          .select('id, table_number')
+          .select('id, table_number, waiter_id, waiters(profile_photo_url, full_name)')
           .in('id', tableIds);
         if (tablesError) {
           console.error('Error al cargar tables:', tablesError);
@@ -791,12 +801,12 @@ const OrdersPage: React.FC = () => {
           };
         });
 
-        // Obtener información de la mesa
+        // Obtener información de la mesa (con mesero)
         const tableInfo = tablesData.find(table => table.id === order.table_id);
 
         return {
           ...order,
-          tables: tableInfo ? { table_number: tableInfo.table_number } : null,
+          tables: tableInfo ? { table_number: tableInfo.table_number, waiters: tableInfo.waiters } : null,
           order_batches: orderBatches,
           order_guests: guestsWithPayments,
           lastActivity
