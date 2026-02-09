@@ -20,6 +20,7 @@ interface Waiter {
   alias_tip?: string;
   email?: string | null;
   user_id?: string | null;
+  password?: string | null;
   created_at?: string;
 }
 
@@ -109,7 +110,7 @@ const WaitersPage: React.FC = () => {
       is_active: waiter.is_active,
       alias_tip: waiter.alias_tip || '',
       email: waiter.email || '',
-      password: '' // No prellenar por seguridad
+      password: waiter.password || ''
     });
     setPreviewUrl(waiter.profile_photo_url);
     
@@ -209,6 +210,7 @@ const WaitersPage: React.FC = () => {
       }
 
       const emailValue = formData.email?.trim() || null;
+      const passwordValue = formData.password?.trim() || null;
       const waiterPayload = {
         restaurant_id: CURRENT_RESTAURANT.id,
         full_name: formData.full_name,
@@ -217,7 +219,9 @@ const WaitersPage: React.FC = () => {
         start_date: formData.start_date,
         is_active: formData.is_active,
         alias_tip: formData.alias_tip || null,
-        ...(emailValue !== null && { email: emailValue })
+        ...(emailValue !== null && { email: emailValue }),
+        // password: admin puede verla, editarla y borrarla (vacío = quitar contraseña)
+        ...(passwordValue !== null ? { password: passwordValue } : { password: null })
       };
 
       let waiterId = editingWaiterId;
@@ -229,9 +233,9 @@ const WaitersPage: React.FC = () => {
           .update(waiterPayload)
           .eq('id', editingWaiterId)
           .select();
-        if (error && (error.message?.includes('email') || error.message?.includes('column'))) {
-          const { email: _e, ...payloadSinEmail } = waiterPayload;
-          const res = await supabase.from('waiters').update(payloadSinEmail).eq('id', editingWaiterId).select();
+        if (error && (error.message?.includes('email') || error.message?.includes('password') || error.message?.includes('column'))) {
+          const { email: _e, password: _p, ...payloadSinCreds } = waiterPayload;
+          const res = await supabase.from('waiters').update(payloadSinCreds).eq('id', editingWaiterId).select();
           if (res.error) throw res.error;
           alert('Datos guardados. Para email/contraseña ejecuta add_waiter_credentials_columns.sql en Supabase SQL Editor.');
         } else if (error) {
@@ -244,9 +248,9 @@ const WaitersPage: React.FC = () => {
           .insert([{ ...waiterPayload, average_rating: 5.0 }])
           .select()
           .single();
-        if (error && (error.message?.includes('email') || error.message?.includes('column'))) {
-          const { email: _e, ...payloadSinEmail } = waiterPayload;
-          const res = await supabase.from('waiters').insert([{ ...payloadSinEmail, average_rating: 5.0 }]).select().single();
+        if (error && (error.message?.includes('email') || error.message?.includes('password') || error.message?.includes('column'))) {
+          const { email: _e, password: _p, ...payloadSinCreds } = waiterPayload;
+          const res = await supabase.from('waiters').insert([{ ...payloadSinCreds, average_rating: 5.0 }]).select().single();
           if (res.error) throw res.error;
           data = res.data;
           alert('Mesero creado. Para email/contraseña ejecuta add_waiter_credentials_columns.sql en Supabase SQL Editor.');
@@ -271,8 +275,8 @@ const WaitersPage: React.FC = () => {
           .in('id', selectedTablesInForm);
       }
 
-      // 3. Crear credenciales para app splitme-waiter (email + contraseña)
-      if (formData.email?.trim() && formData.password) {
+      // 3. Sincronizar credenciales con Auth para app splitme-waiter (email + contraseña)
+      if (formData.email?.trim() && formData.password?.trim()) {
         try {
           await handleCreateWaiterAuth(waiterId, formData.email.trim(), formData.password);
         } catch (authErr: any) {

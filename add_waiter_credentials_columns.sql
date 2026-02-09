@@ -8,3 +8,7 @@ COMMENT ON COLUMN waiters.email IS 'Email para login en la app splitme-waiter';
 -- 2. Columna user_id (vincula con auth.users)
 ALTER TABLE waiters ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id);
 CREATE INDEX IF NOT EXISTS idx_waiters_user_id ON waiters(user_id);
+
+-- 3. Columna password (admin puede ver/gestionar; también se sincroniza a Auth para login)
+ALTER TABLE waiters ADD COLUMN IF NOT EXISTS password TEXT;
+COMMENT ON COLUMN waiters.password IS 'Contraseña visible para el admin; sincronizada con auth.users';
