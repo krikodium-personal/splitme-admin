@@ -271,7 +271,7 @@ const OrderGroupCard: React.FC<{
   }, [forceExpanded]);
 
   return (
-    <div className={`bg-white rounded-[2.5rem] border border-gray-100 shadow-md overflow-hidden flex flex-col transition-all duration-500 ease-in-out h-fit animate-in fade-in slide-in-from-bottom-4 ${isCollapsed ? 'max-w-full' : ''}`}>
+    <div className={`bg-white rounded-[2.5rem] border border-gray-100 shadow-md overflow-hidden flex flex-col transition-all duration-500 ease-in-out h-fit animate-in fade-in slide-in-from-bottom-4 min-w-0 w-full ${isCollapsed ? 'max-w-full' : ''}`}>
       <div 
         className={`p-6 cursor-pointer transition-colors duration-300 ${isCollapsed ? 'bg-slate-50/50' : 'border-b border-gray-50 bg-gray-50/30'}`}
         onClick={() => setIsCollapsed(!isCollapsed)}
@@ -1337,9 +1337,9 @@ const OrdersPage: React.FC = () => {
       )}
 
       {toggleLoading ? (
-        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-8 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           {[...Array(6)].map((_, index) => (
-            <div key={index} className="bg-white rounded-[2.5rem] border border-gray-100 shadow-md overflow-hidden animate-pulse">
+            <div key={index} className="bg-white rounded-[2.5rem] border border-gray-100 shadow-md overflow-hidden animate-pulse min-w-0 w-full">
               <div className="p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="h-6 bg-gray-200 rounded-lg w-32"></div>
@@ -1362,7 +1362,7 @@ const OrdersPage: React.FC = () => {
           ))}
         </div>
       ) : orders.length > 0 ? (
-        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-8 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           {orders.map(order => (
             <OrderGroupCard 
               key={order.id} 

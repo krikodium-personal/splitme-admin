@@ -80,10 +80,10 @@ const FeedbackPage: React.FC = () => {
       
       if (reviewData) setReviews(reviewData as any);
 
-      // 2. Ranking de Staff (Calculado en tiempo real desde reviews para máxima precisión)
+      // 2. Ranking de Staff (desde reviews; fallback a waiters.average_rating si no hay reviews con rating)
       const { data: waitersBase } = await supabase
         .from('waiters')
-        .select('id, nickname, full_name, profile_photo_url')
+        .select('id, nickname, full_name, profile_photo_url, average_rating')
         .eq('restaurant_id', restaurantId);
 
       const { data: waiterReviews } = await supabase
@@ -93,16 +93,24 @@ const FeedbackPage: React.FC = () => {
 
       if (waitersBase && waiterReviews) {
         const waiterStats = waitersBase.map(w => {
-          const reviewsForW = waiterReviews.filter(r => r.waiter_id === w.id);
-          const avg = reviewsForW.length > 0 
-            ? reviewsForW.reduce((acc, curr) => acc + curr.waiter_rating, 0) / reviewsForW.length 
-            : 0;
+          // Solo reseñas con waiter_rating válido (no null, no vacío)
+          const reviewsForW = waiterReviews.filter(
+            r => r.waiter_id === w.id && r.waiter_rating != null && r.waiter_rating !== ''
+          );
+          let avg: number;
+          if (reviewsForW.length > 0) {
+            const sum = reviewsForW.reduce((acc, curr) => acc + (Number(curr.waiter_rating) || 0), 0);
+            avg = sum / reviewsForW.length;
+          } else {
+            // Fallback: usar average_rating de waiters (lo actualiza syncWaiterStats en guests)
+            avg = Number(w.average_rating) || 0;
+          }
           return {
             ...w,
-            average_rating: avg
+            average_rating: Math.round(avg * 10) / 10
           };
         }).sort((a, b) => b.average_rating - a.average_rating);
-        
+
         setRankedWaiters(waiterStats);
       }
 
@@ -156,14 +164,16 @@ const FeedbackPage: React.FC = () => {
   [rankedItems]);
 
   const renderStars = (rating: number, size = 14) => {
+    const r = Number(rating) || 0;
+    const filled = Math.min(5, Math.round(r));
     return (
       <div className="flex items-center gap-0.5">
-        {[...Array(5)].map((_, i) => (
-          <Star 
-            key={i} 
-            size={size} 
-            fill={i < Math.floor(rating) ? "#f59e0b" : "none"} 
-            className={i < Math.floor(rating) ? "text-amber-500" : "text-gray-200"} 
+        {[0, 1, 2, 3, 4].map((i) => (
+          <Star
+            key={i}
+            size={size}
+            fill={i < filled ? '#f59e0b' : 'none'}
+            className={i < filled ? 'text-amber-500' : 'text-gray-200'}
           />
         ))}
       </div>

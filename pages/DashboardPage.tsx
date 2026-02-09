@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { 
   DollarSign, Receipt, Utensils, TrendingUp, Loader2, Calendar, 
-  LayoutDashboard, ShoppingBag, Clock, Users, Trophy
+  LayoutDashboard, ShoppingBag, Clock, Users, Trophy, Grid3X3
 } from 'lucide-react';
 import { CURRENT_RESTAURANT } from '../types';
 
@@ -17,12 +17,36 @@ const DashboardPage: React.FC = () => {
   const [popularDishesLoading, setPopularDishesLoading] = useState(true);
   const [averageServiceTime, setAverageServiceTime] = useState<number | null>(null);
   const [serviceTimeLoading, setServiceTimeLoading] = useState(true);
+  const [occupancyLoading, setOccupancyLoading] = useState(true);
+  const [tables, setTables] = useState<Array<{ id: string; table_number: string }>>([]);
+  const [occupiedTableIds, setOccupiedTableIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchStats();
     fetchPopularDishes();
     fetchAverageServiceTime();
   }, [timeRange]);
+
+  useEffect(() => {
+    fetchTableOccupancy();
+
+    const restaurantId = CURRENT_RESTAURANT?.id;
+    if (!restaurantId) return;
+
+    const channel = supabase
+      .channel('dashboard-occupancy')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${restaurantId}` }, () => {
+        fetchTableOccupancy();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${restaurantId}` }, () => {
+        fetchTableOccupancy();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [CURRENT_RESTAURANT?.id]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('es-CL', {
@@ -429,6 +453,46 @@ const DashboardPage: React.FC = () => {
     }
   };
 
+  const fetchTableOccupancy = async () => {
+    const restaurantId = CURRENT_RESTAURANT?.id;
+    if (!restaurantId) {
+      setOccupancyLoading(false);
+      return;
+    }
+    setOccupancyLoading(true);
+    try {
+      const { data: tablesData, error: tablesError } = await supabase
+        .from('tables')
+        .select('id, table_number')
+        .eq('restaurant_id', restaurantId);
+
+      if (tablesError) throw tablesError;
+
+      const { data: openOrders, error: ordersError } = await supabase
+        .from('orders')
+        .select('table_id')
+        .eq('restaurant_id', restaurantId)
+        .in('status', ['ABIERTO', 'SOLICITADO']);
+
+      if (ordersError) {
+        console.warn('Error al obtener órdenes abiertas (ocupación):', ordersError);
+      }
+
+      const occupied = new Set(
+        (openOrders || []).map((o: { table_id: string }) => o.table_id).filter(Boolean)
+      );
+
+      setTables(tablesData || []);
+      setOccupiedTableIds(occupied);
+    } catch (err) {
+      console.error('Error al cargar ocupación de mesas:', err);
+      setTables([]);
+      setOccupiedTableIds(new Set());
+    } finally {
+      setOccupancyLoading(false);
+    }
+  };
+
   const formatServiceTime = (minutes: number | null) => {
     if (minutes === null) return 'N/A';
     if (minutes < 60) return `${minutes} min`;
@@ -528,6 +592,64 @@ const DashboardPage: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Ocupación de mesas */}
+      <div className="bg-white p-10 rounded-[3rem] border border-gray-100 shadow-sm">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-sm font-black uppercase tracking-widest text-gray-400">Ocupación de mesas</h3>
+          <Grid3X3 size={20} className="text-slate-600" />
+        </div>
+        {occupancyLoading ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center space-y-4">
+            <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center">
+              <Loader2 size={32} className="animate-spin" />
+            </div>
+            <p className="text-gray-900 font-bold">Cargando ocupación...</p>
+          </div>
+        ) : tables.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center space-y-4">
+            <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center">
+              <Grid3X3 size={32} />
+            </div>
+            <p className="text-gray-900 font-bold">No hay mesas configuradas</p>
+            <p className="text-xs text-gray-400">Crea mesas en la sección Mesas</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Ocupadas</span>
+                <span className="text-2xl font-black text-slate-800">{occupiedTableIds.size}</span>
+              </div>
+              <span className="text-slate-300 font-bold">/</span>
+              <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total</span>
+                <span className="text-2xl font-black text-slate-800">{tables.length}</span>
+              </div>
+            </div>
+            {occupiedTableIds.size > 0 ? (
+              <div>
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Mesas ocupadas</p>
+                <div className="flex flex-wrap gap-2">
+                  {tables
+                    .filter((t) => occupiedTableIds.has(t.id))
+                    .sort((a, b) => a.table_number.localeCompare(b.table_number, undefined, { numeric: true, sensitivity: 'base' }))
+                    .map((t) => (
+                      <span
+                        key={t.id}
+                        className="inline-flex items-center px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-sm font-bold text-amber-800"
+                      >
+                        Mesa {t.table_number}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500 font-medium">Todas las mesas están libres</p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
