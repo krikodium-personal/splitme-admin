@@ -5,6 +5,7 @@ import {
   Trash2, CheckCircle2, X, Plus, ChevronRight, Store, Grid, Edit3, Info, Mail, Lock, Eye, EyeOff
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { CURRENT_RESTAURANT, Table } from '../types';
 
@@ -155,8 +156,17 @@ const WaitersPage: React.FC = () => {
       const { data, error } = await supabase.functions.invoke('create-waiter-auth', {
         body: { waiter_id: waiterId, email, password }
       });
-      if (error) throw error;
       if (data?.error) throw new Error(data.error);
+      if (error) {
+        // Extraer mensaje real de la Edge Function (4xx/5xx)
+        if (error instanceof FunctionsHttpError && error.context) {
+          try {
+            const body = await (error.context as Response).json();
+            throw new Error(body?.error || error.message);
+          } catch (_) {}
+        }
+        throw error;
+      }
       return true;
     } catch (err: any) {
       console.error('Error al crear credenciales:', err);
