@@ -24,9 +24,5 @@ if (!isSupabaseConfigured) {
 
 // Inicialización del cliente de Supabase
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export { SUPABASE_URL, SUPABASE_ANON_KEY };
 
-// Cliente sin sesión de usuario: usa solo anon key para invocar Edge Functions.
-// Evita 401 cuando el JWT del admin provoca rechazo en la función.
-export const supabaseAnon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false }
-});

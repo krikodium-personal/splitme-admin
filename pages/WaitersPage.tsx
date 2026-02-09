@@ -5,8 +5,7 @@ import {
   Trash2, CheckCircle2, X, Plus, ChevronRight, Store, Grid, Edit3, Info, Mail, Lock, Eye, EyeOff
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { FunctionsHttpError } from '@supabase/supabase-js';
-import { supabase, supabaseAnon, isSupabaseConfigured } from '../supabase';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY, isSupabaseConfigured } from '../supabase';
 import { CURRENT_RESTAURANT, Table } from '../types';
 
 interface Waiter {
@@ -152,26 +151,17 @@ const WaitersPage: React.FC = () => {
   };
 
   const handleCreateWaiterAuth = async (waiterId: string, email: string, password: string): Promise<boolean> => {
-    try {
-      const { data, error } = await supabaseAnon.functions.invoke('create-waiter-auth', {
-        body: { waiter_id: waiterId, email, password }
-      });
-      if (data?.error) throw new Error(data.error);
-      if (error) {
-        // Extraer mensaje real de la Edge Function (4xx/5xx)
-        if (error instanceof FunctionsHttpError && error.context) {
-          try {
-            const body = await (error.context as Response).json();
-            throw new Error(body?.error || error.message);
-          } catch (_) {}
-        }
-        throw error;
-      }
-      return true;
-    } catch (err: any) {
-      console.error('Error al crear credenciales:', err);
-      throw err;
-    }
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/create-waiter-auth`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ waiter_id: waiterId, email, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+    return true;
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
