@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { supabase, isSupabaseConfigured } from '../supabase';
+import { supabase, supabaseAnon, isSupabaseConfigured } from '../supabase';
 import { CURRENT_RESTAURANT, Table } from '../types';
 
 interface Waiter {
@@ -153,7 +153,7 @@ const WaitersPage: React.FC = () => {
 
   const handleCreateWaiterAuth = async (waiterId: string, email: string, password: string): Promise<boolean> => {
     try {
-      const { data, error } = await supabase.functions.invoke('create-waiter-auth', {
+      const { data, error } = await supabaseAnon.functions.invoke('create-waiter-auth', {
         body: { waiter_id: waiterId, email, password }
       });
       if (data?.error) throw new Error(data.error);
