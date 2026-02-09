@@ -108,6 +108,21 @@ const BatchCard: React.FC<{
             const unitPrice = item.unit_price || 0;
             const subtotal = unitPrice * (item.quantity || 1);
 
+            let extrasArr: string[] = [];
+            if (item.extras && Array.isArray(item.extras)) extrasArr = item.extras;
+            else if (typeof item.extras === 'string' && item.extras) extrasArr = item.extras.split(',').map((s: string) => s.trim()).filter(Boolean);
+            else if (item.notes?.includes('EXTRAS:')) {
+              const m = item.notes.match(/EXTRAS:\s*([^|]+)/);
+              if (m?.[1]) extrasArr = m[1].split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
+            let removedArr: string[] = [];
+            if (item.removed_ingredients && Array.isArray(item.removed_ingredients)) removedArr = item.removed_ingredients;
+            else if (typeof item.removed_ingredients === 'string' && item.removed_ingredients) removedArr = item.removed_ingredients.split(',').map((s: string) => s.trim()).filter(Boolean);
+            else if (item.notes?.includes('SIN:')) {
+              const m = item.notes.match(/SIN:\s*([^|]+)/) || item.notes.match(/SIN:\s*(.+)/);
+              if (m?.[1]) removedArr = m[1].split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
+
             return (
               <div key={item.id} className="flex justify-between items-start py-2 border-b border-slate-50 last:border-0">
                 <div className="flex gap-3 flex-1">
@@ -118,6 +133,20 @@ const BatchCard: React.FC<{
                     <p className="text-sm font-bold text-slate-800 leading-tight">
                       {itemName}
                     </p>
+                    {(extrasArr.length > 0 || removedArr.length > 0) && (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {extrasArr.map((ex: string) => (
+                          <span key={ex} className="text-[9px] font-black uppercase bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md border border-emerald-100">
+                            +{ex}
+                          </span>
+                        ))}
+                        {removedArr.map((rem: string) => (
+                          <span key={rem} className="text-[9px] font-black uppercase bg-red-50 text-red-600 px-2 py-0.5 rounded-md border border-red-100">
+                            -{rem}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[10px] font-bold text-slate-500">
                         ${Number(unitPrice).toLocaleString('es-CL')} c/u

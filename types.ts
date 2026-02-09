@@ -86,6 +86,8 @@ export interface OrderItem {
   quantity: number;
   unit_price: number;
   notes: string | null;
+  extras?: string[] | string | null;
+  removed_ingredients?: string[] | string | null;
   menu_items?: {
     name: string;
   };
