@@ -14,8 +14,9 @@ const BatchCard: React.FC<{
   batch: any, 
   batchIndex: number,
   onUpdateBatchStatus: (batchId: string, newStatus: string) => void,
-  isArchived?: boolean
-}> = ({ batch, batchIndex, onUpdateBatchStatus, isArchived = false }) => {
+  isArchived?: boolean,
+  orderGuests?: any[]
+}> = ({ batch, batchIndex, onUpdateBatchStatus, isArchived = false, orderGuests = [] }) => {
   const [isExpanded, setIsExpanded] = useState(batch.status !== 'SERVIDO');
 
   // Colapsar automáticamente cuando el batch se marca como SERVIDO
@@ -190,6 +191,24 @@ const BatchCard: React.FC<{
               </div>
             );
           })}
+          {/* Pagos registrados de este envío (por batch) */}
+          {(batch.payments || []).length > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Pagos de este envío</p>
+              <div className="space-y-1.5">
+                {(batch.payments || []).map((p: any) => {
+                  const guestName = orderGuests.find((g: any) => g.id === p.guest_id)?.name || 'Comensal';
+                  const amt = Number(p.amount) || Number(p.total_amount) || 0;
+                  return (
+                    <div key={p.id} className="flex justify-between items-center text-[10px]">
+                      <span className="font-bold text-slate-700">{guestName}</span>
+                      <span className="font-black text-emerald-600">${amt.toLocaleString('es-CL')}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -208,8 +227,16 @@ const OrderGroupCard: React.FC<{
   // Inicializamos colapsado por defecto, a menos que se fuerce la expansión
   const [isCollapsed, setIsCollapsed] = useState(!forceExpanded);
   const [copiedPaymentId, setCopiedPaymentId] = useState<string | null>(null);
-  // Filtrar lotes: no mostrar los que están en estado "CREADO"
+  // Filtrar lotes: excluir CREADO = "por enviar a cocina" (seleccionados pero NO ordenados aún)
+  // Solo incluir lo que el comensal ya envió a cocina (ENVIADO, PREPARANDO, LISTO, SERVIDO)
   const batches = (order.order_batches || []).filter((batch: any) => batch.status !== 'CREADO');
+
+  // Total acumulado: solo items YA ordenados (excluye "por enviar"). Evita cobrar lo no encargado.
+  const calculatedTotal = batches.reduce((sum: number, batch: any) => {
+    return sum + (batch.order_items || []).reduce((s: number, item: any) => {
+      return s + (Number(item.unit_price) || 0) * (Number(item.quantity) || 1);
+    }, 0);
+  }, 0);
 
   // Para la lógica de estado, usar todos los batches (incluyendo CREADO)
   const allBatches = order.order_batches || [];
@@ -236,12 +263,14 @@ const OrderGroupCard: React.FC<{
   const batchesToCheck = allBatches.filter((b: any) => b.status !== 'CREADO');
   const allBatchesServed = batchesToCheck.length === 0 || batchesToCheck.every((b: any) => b.status === 'SERVIDO');
 
-  // Calcular la suma de los individual_amount de los guests con paid=TRUE
-  const totalPaidAmount = orderGuests
-    .filter((g: any) => g.paid === true)
-    .reduce((sum: number, g: any) => sum + (Number(g.individual_amount) || 0), 0);
+  // Total pagado: preferir suma de payments (por batch). Fallback a individual_amount de guests pagados.
+  const totalPaidFromPayments = (order.orderPayments || []).reduce((s: number, p: any) => s + (Number(p.amount) || Number(p.total_amount) || 0), 0);
+  const totalPaidAmount = totalPaidFromPayments > 0
+    ? totalPaidFromPayments
+    : orderGuests.filter((g: any) => g.paid === true).reduce((sum: number, g: any) => sum + (Number(g.individual_amount) || 0), 0);
 
-  const totalAmount = Number(order.total_amount) || 0;
+  // Usar total calculado desde items para consistencia con lo mostrado
+  const totalAmount = calculatedTotal > 0 ? calculatedTotal : (Number(order.total_amount) || 0);
   // Tolerancia para redondeos: al menos 1 unidad o 0.5% del total (útil en CLP y otros)
   const amountTolerance = Math.max(1, totalAmount * 0.005);
   const isTotalAmountPaid = totalAmount > 0 && Math.abs(totalPaidAmount - totalAmount) <= amountTolerance;
@@ -313,7 +342,7 @@ const OrderGroupCard: React.FC<{
                 <h3 className="text-lg font-black text-slate-900 tracking-tight leading-none">Mesa {order.tables?.table_number}</h3>
                 {isCollapsed && (
                    <span className="px-3 py-0.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black tracking-tighter shadow-sm animate-in zoom-in-95">
-                    ${Number(order.total_amount).toLocaleString('es-CL')}
+                    ${calculatedTotal.toLocaleString('es-CL')}
                   </span>
                 )}
               </div>
@@ -380,6 +409,7 @@ const OrderGroupCard: React.FC<{
                 batchIndex={idx} 
                 onUpdateBatchStatus={onUpdateBatchStatus}
                 isArchived={propIsClosed}
+                orderGuests={order.order_guests}
               />
             ))
           ) : (
@@ -394,7 +424,7 @@ const OrderGroupCard: React.FC<{
           <div className="flex justify-between items-center mb-4">
             <div>
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Total Acumulado</p>
-              <p className="text-2xl font-black text-indigo-600 tracking-tighter">${Number(order.total_amount).toLocaleString('es-CL')}</p>
+              <p className="text-2xl font-black text-indigo-600 tracking-tighter">${calculatedTotal.toLocaleString('es-CL')}</p>
             </div>
             <div className="px-4 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-indigo-100">
               {batches.length} {batches.length === 1 ? 'Envío' : 'Envíos'}
@@ -403,15 +433,8 @@ const OrderGroupCard: React.FC<{
 
           {/* Detalle de división de pago por comensal */}
           {order.order_guests?.length > 0 && (() => {
-            // Filtrar comensales con saldo $0 si la suma del resto es igual al total
-            const guestsWithAmount = order.order_guests.filter((g: any) => (g.individual_amount || 0) > 0);
-            const sumOfGuestsWithAmount = guestsWithAmount.reduce((sum: number, g: any) => sum + (Number(g.individual_amount) || 0), 0);
-            const totalAmount = Number(order.total_amount || 0);
-            
-            // Si la suma de los comensales con monto es igual al total, ocultar los de $0
-            const guestsToShow = (sumOfGuestsWithAmount === totalAmount && totalAmount > 0)
-              ? guestsWithAmount
-              : order.order_guests;
+            // Solo mostrar comensales con división de pago > $0 (no mostrar los de $0)
+            const guestsToShow = order.order_guests.filter((g: any) => (Number(g.individual_amount) || 0) > 0);
             
             return guestsToShow.length > 0 ? (
               <div className="mt-4 pt-4 border-t border-gray-200">
@@ -420,7 +443,10 @@ const OrderGroupCard: React.FC<{
                   {guestsToShow.map((guest: any) => {
                   // Obtener payment_method desde order_guests (en tiempo real)
                   const paymentMethod = guest.payment_method?.toLowerCase() || null;
-                  const guestTotal = guest.individual_amount || 0;
+                  // Monto pagado: suma de payments del guest (por batch). Fallback a individual_amount si no hay payments.
+                  const paymentsByGuest = (order.orderPayments || []).filter((p: any) => p.guest_id === guest.id);
+                  const sumFromPayments = paymentsByGuest.reduce((s: number, p: any) => s + (Number(p.amount) || Number(p.total_amount) || 0), 0);
+                  const guestTotal = sumFromPayments > 0 ? sumFromPayments : (Number(guest.individual_amount) || 0);
 
                   // Verificar si está pagado: solo usar el campo paid de order_guests
                   const isPaid = guest.paid === true;
@@ -770,12 +796,17 @@ const OrdersPage: React.FC = () => {
       }
 
       const processedOrders = ordersData.map(order => {
+        // Obtener guests y payments para esta orden (antes de orderBatches para usarlos ahí)
+        const orderGuests = guestsData.filter(guest => guest.order_id === order.id);
+        const orderPayments = paymentsData.filter(payment => payment.order_id === order.id);
+
         // Obtener batches para esta orden
         const orderBatches = batchesData
           .filter(batch => batch.order_id === order.id)
           .map((batch: any) => ({
             ...batch,
-            order_items: itemsData.filter(item => item.batch_id === batch.id)
+            order_items: itemsData.filter(item => item.batch_id === batch.id),
+            payments: orderPayments.filter((p: any) => p.batch_id === batch.id)
           }))
           .sort((a: any, b: any) => 
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -787,10 +818,6 @@ const OrdersPage: React.FC = () => {
           : new Date(order.created_at).getTime();
 
         const lastActivity = Math.max(new Date(order.created_at).getTime(), latestBatchTime);
-
-        // Obtener guests y payments para esta orden
-        const orderGuests = guestsData.filter(guest => guest.order_id === order.id);
-        const orderPayments = paymentsData.filter(payment => payment.order_id === order.id);
 
         // Combinar guests con sus payments
         const guestsWithPayments = orderGuests.map(guest => {
@@ -809,6 +836,7 @@ const OrdersPage: React.FC = () => {
           tables: tableInfo ? { table_number: tableInfo.table_number, waiters: tableInfo.waiters } : null,
           order_batches: orderBatches,
           order_guests: guestsWithPayments,
+          orderPayments,
           lastActivity
         };
       });
@@ -1192,7 +1220,20 @@ const OrdersPage: React.FC = () => {
       }
 
       console.log(`✅ Orden cerrada correctamente con status: ${rpcResult.status || 'CERRADO'}`);
-      console.log('✅ Mesa cerrada correctamente');
+      
+      // Poner la mesa en estado Libre en la base de datos
+      if (order.table_id) {
+        const { error: tableError } = await supabase
+          .from('tables')
+          .update({ status: 'Libre' })
+          .eq('id', order.table_id)
+          .eq('restaurant_id', CURRENT_RESTAURANT.id);
+        if (tableError) {
+          console.warn('⚠️ No se pudo actualizar estado de la mesa:', tableError);
+        } else {
+          console.log('✅ Mesa marcada como Libre');
+        }
+      }
       
       // Refrescar las órdenes
       await fetchActiveOrders();

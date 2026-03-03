@@ -88,9 +88,10 @@ const TablesPage: React.FC = () => {
         table: 'orders',
         filter: `restaurant_id=eq.${CURRENT_RESTAURANT.id}`
       }, (payload) => {
-        // Cuando se cierra una orden (status = 'Pagado'), liberar la mesa
+        // Cuando se cierra una orden (status = 'Pagado' o 'CERRADO'), liberar la mesa
         const updatedOrder = payload.new;
-        if (updatedOrder.status === 'Pagado' && updatedOrder.table_id) {
+        const isClosed = updatedOrder.status === 'Pagado' || updatedOrder.status === 'CERRADO';
+        if (isClosed && updatedOrder.table_id) {
           setTables(prev => prev.map(table => 
             table.id === updatedOrder.table_id 
               ? { ...table, status: 'Libre' as const }
