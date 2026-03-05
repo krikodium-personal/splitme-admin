@@ -6,7 +6,7 @@ import {
   ArrowLeft, Star, Loader2, Image as ImageIcon, Utensils,
   Layers, Trash2, GripVertical, BookmarkPlus, Copy
 } from 'lucide-react';
-import { NewMenuItem, Category, CURRENT_RESTAURANT, VariantPriceType, VariantSelectionType } from '../types';
+import { NewMenuItem, Category, CURRENT_RESTAURANT, VariantPriceType, VariantSelectionType, MenuSectionHeader } from '../types';
 import TagInput from '../components/TagInput';
 import NutritionInput from '../components/NutritionInput';
 import { supabase, isSupabaseConfigured } from '../supabase';
@@ -59,10 +59,13 @@ const CreateItemPage: React.FC = () => {
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [applyingTemplate, setApplyingTemplate] = useState(false);
 
+  const [sectionHeaders, setSectionHeaders] = useState<MenuSectionHeader[]>([]);
+
   const [formData, setFormData] = useState<NewMenuItem & { average_rating?: number }>({
     restaurant_id: CURRENT_RESTAURANT?.id || '',
     category_id: '',
     subcategory_id: null,
+    section_id: null,
     name: '',
     description: '',
     price: 0,
@@ -84,6 +87,28 @@ const CreateItemPage: React.FC = () => {
     fetchInitialData();
     if (isEditing) fetchItemToEdit();
   }, [id]);
+
+  useEffect(() => {
+    if (!formData.category_id || !isSupabaseConfigured || !CURRENT_RESTAURANT?.id) {
+      setSectionHeaders([]);
+      return;
+    }
+    const fetchSections = async () => {
+      let q = supabase
+        .from('menu_section_headers')
+        .select('*')
+        .eq('restaurant_id', CURRENT_RESTAURANT.id)
+        .eq('category_id', formData.category_id);
+      if (formData.subcategory_id) {
+        q = q.eq('subcategory_id', formData.subcategory_id);
+      } else {
+        q = q.is('subcategory_id', null);
+      }
+      const { data } = await q.order('sort_order');
+      setSectionHeaders((data as MenuSectionHeader[]) || []);
+    };
+    fetchSections();
+  }, [formData.category_id, formData.subcategory_id]);
 
   const fetchInitialData = async () => {
     if (!isSupabaseConfigured || !CURRENT_RESTAURANT?.id) return;
@@ -163,6 +188,7 @@ const CreateItemPage: React.FC = () => {
           restaurant_id: data.restaurant_id,
           category_id: data.category_id || '',
           subcategory_id: data.subcategory_id || null,
+          section_id: data.section_id ?? null,
           name: data.name,
           description: data.description,
           price: data.price,
@@ -246,6 +272,10 @@ const CreateItemPage: React.FC = () => {
       const newState = { ...prev, [name]: val };
       if (name === 'category_id') {
         newState.subcategory_id = null;
+        newState.section_id = null;
+      }
+      if (name === 'subcategory_id') {
+        newState.section_id = null;
       }
       return newState;
     });
@@ -380,6 +410,7 @@ const CreateItemPage: React.FC = () => {
         restaurant_id: CURRENT_RESTAURANT.id,
         category_id: formData.category_id || null,
         subcategory_id: formData.subcategory_id || null,
+        section_id: (formData.section_id && String(formData.section_id).trim()) ? formData.section_id : null,
         name: formData.name.trim(),
         price: Number(formData.price),
         description: formData.description.trim(),
@@ -612,6 +643,23 @@ const CreateItemPage: React.FC = () => {
                   </select>
                </div>
             </div>
+
+            {formData.category_id && sectionHeaders.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Subtítulo</label>
+                <select
+                  name="section_id"
+                  value={formData.section_id ?? ''}
+                  onChange={handleInputChange}
+                  className="w-full p-5 bg-gray-50 border-2 border-transparent rounded-2xl outline-none font-bold appearance-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Sin subtítulo</option>
+                  {sectionHeaders.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(sec => (
+                    <option key={sec.id} value={sec.id}>{sec.title}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-8">
                <div className="space-y-2">

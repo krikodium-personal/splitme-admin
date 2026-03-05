@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit2, Trash2, Star, AlertTriangle, Store, Tag, Search, Utensils, ChevronRight, ArrowUpDown, Loader2, X, Save, LayoutGrid, List, CheckSquare, Square } from 'lucide-react';
+import { Plus, Edit2, Trash2, Star, AlertTriangle, Store, Tag, Search, Utensils, ChevronRight, ArrowUpDown, Loader2, X, Save, LayoutGrid, List, CheckSquare, Square, Heading } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { CURRENT_RESTAURANT, MenuItem } from '../types';
+import { CURRENT_RESTAURANT, MenuItem, MenuSectionHeader } from '../types';
 import { supabase } from '../supabase';
 
 const MenuListPage: React.FC = () => {
@@ -35,10 +35,44 @@ const MenuListPage: React.FC = () => {
   const [bulkSubcategoryId, setBulkSubcategoryId] = useState<string>('');
   const [bulkSaving, setBulkSaving] = useState(false);
 
+  const [sectionHeaders, setSectionHeaders] = useState<MenuSectionHeader[]>([]);
+  const [newSectionTitle, setNewSectionTitle] = useState('');
+  const [addingSection, setAddingSection] = useState(false);
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [editingSectionTitle, setEditingSectionTitle] = useState('');
+
   useEffect(() => {
     fetchInitialData();
     loadGlobalTags();
   }, []);
+
+  useEffect(() => {
+    fetchSectionHeaders();
+  }, [selectedParentId, selectedSubId, CURRENT_RESTAURANT?.id]);
+
+  const fetchSectionHeaders = async () => {
+    if (!CURRENT_RESTAURANT?.id || !selectedParentId) {
+      setSectionHeaders([]);
+      return;
+    }
+    try {
+      const q = supabase
+        .from('menu_section_headers')
+        .select('*')
+        .eq('restaurant_id', CURRENT_RESTAURANT.id)
+        .eq('category_id', selectedParentId);
+      if (selectedSubId) {
+        q.eq('subcategory_id', selectedSubId);
+      } else {
+        q.is('subcategory_id', null);
+      }
+      const { data } = await q.order('sort_order');
+
+      setSectionHeaders((data as MenuSectionHeader[]) || []);
+    } catch {
+      setSectionHeaders([]);
+    }
+  };
 
   const loadGlobalTags = () => {
     if (!CURRENT_RESTAURANT?.id) return;
@@ -263,6 +297,72 @@ const MenuListPage: React.FC = () => {
     return categories.filter(c => c.parent_id === bulkCategoryId);
   }, [categories, bulkCategoryId]);
 
+  const addSectionHeader = async () => {
+    if (!newSectionTitle.trim() || !selectedParentId || !CURRENT_RESTAURANT?.id) return;
+    setAddingSection(true);
+    try {
+      const maxOrder = Math.max(0, ...sectionHeaders.map(s => s.sort_order || 0));
+      const { data, error } = await supabase
+        .from('menu_section_headers')
+        .insert({
+          restaurant_id: CURRENT_RESTAURANT.id,
+          category_id: selectedParentId,
+          subcategory_id: selectedSubId || null,
+          title: newSectionTitle.trim(),
+          sort_order: maxOrder + 1
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      setSectionHeaders(prev => [...prev, data as MenuSectionHeader]);
+      setNewSectionTitle('');
+    } catch (err: any) {
+      alert(`Error: ${err.message || 'No se pudo crear el subtítulo.'}`);
+    } finally {
+      setAddingSection(false);
+    }
+  };
+
+  const updateSectionHeader = async (id: string) => {
+    if (!editingSectionTitle.trim()) return;
+    try {
+      const { error } = await supabase
+        .from('menu_section_headers')
+        .update({ title: editingSectionTitle.trim() })
+        .eq('id', id);
+      if (error) throw error;
+      setSectionHeaders(prev => prev.map(s => s.id === id ? { ...s, title: editingSectionTitle.trim() } : s));
+      setEditingSectionId(null);
+      setEditingSectionTitle('');
+    } catch (err: any) {
+      alert(`Error: ${err.message || 'No se pudo actualizar.'}`);
+    }
+  };
+
+  const deleteSectionHeader = async (id: string) => {
+    if (!confirm('¿Eliminar este subtítulo? Los productos quedarán sin sección.')) return;
+    try {
+      const { error } = await supabase.from('menu_section_headers').delete().eq('id', id);
+      if (error) throw error;
+      setSectionHeaders(prev => prev.filter(s => s.id !== id));
+    } catch (err: any) {
+      alert(`Error: ${err.message || 'No se pudo eliminar.'}`);
+    }
+  };
+
+  const assignSectionToItem = async (itemId: string, sectionId: string | null) => {
+    try {
+      const { error } = await supabase
+        .from('menu_items')
+        .update({ section_id: sectionId })
+        .eq('id', itemId);
+      if (error) throw error;
+      setItems(prev => prev.map(i => i.id === itemId ? { ...i, section_id: sectionId } : i));
+    } catch (err: any) {
+      alert(`Error: ${err.message || 'No se pudo asignar.'}`);
+    }
+  };
+
   const processedItems = useMemo(() => {
     let filtered = items.filter(item => {
       const matchesParent = !selectedParentId || item.category_id === selectedParentId;
@@ -289,12 +389,29 @@ const MenuListPage: React.FC = () => {
     }
   }, [items, selectedParentId, selectedSubId, searchTerm, sortMode, filterFeatured, filterNew, filterAvailable]);
 
+  const groupedForDisplay = useMemo(() => {
+    const groups: { sectionId: string | null; sectionTitle: string | null; items: MenuItem[] }[] = [];
+    const withoutSection = processedItems.filter(i => !(i as any).section_id);
+    if (withoutSection.length > 0) {
+      groups.push({ sectionId: null, sectionTitle: null, items: withoutSection });
+    }
+    for (const sec of [...sectionHeaders].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))) {
+      const items = processedItems.filter(i => (i as any).section_id === sec.id);
+      groups.push({ sectionId: sec.id, sectionTitle: sec.title, items });
+    }
+    if (groups.length === 0 && processedItems.length > 0) {
+      groups.push({ sectionId: null, sectionTitle: null, items: processedItems });
+    }
+    return groups;
+  }, [processedItems, sectionHeaders]);
+
   const parentCats = categories.filter(c => !c.parent_id);
   const subCats = useMemo(() => {
     if (!selectedParentId) return [];
     return categories.filter(c => c.parent_id === selectedParentId);
   }, [categories, selectedParentId]);
   const hasSubcategories = subCats.length > 0;
+  const canAddSections = Boolean(selectedParentId);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -596,8 +713,50 @@ const MenuListPage: React.FC = () => {
 
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="animate-spin text-indigo-600" size={48} /></div>
-      ) : processedItems.length > 0 ? (
+      ) : processedItems.length > 0 || (canAddSections && sectionHeaders.length > 0) ? (
         <>
+          {canAddSections && (
+            <div className="flex flex-wrap items-center gap-3 mb-6 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+              <Heading size={18} className="text-indigo-600" />
+              <span className="text-sm font-bold text-gray-700">Subtítulos:</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {sectionHeaders.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(sec => (
+                  <div key={sec.id} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl border border-gray-200">
+                    {editingSectionId === sec.id ? (
+                      <>
+                        <input
+                          value={editingSectionTitle}
+                          onChange={e => setEditingSectionTitle(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && updateSectionHeader(sec.id)}
+                          className="w-32 px-2 py-1 text-sm font-bold border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                          autoFocus
+                        />
+                        <button onClick={() => updateSectionHeader(sec.id)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><Save size={14} /></button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-sm font-bold text-gray-800">{sec.title}</span>
+                        <button onClick={() => { setEditingSectionId(sec.id); setEditingSectionTitle(sec.title); }} className="p-1 text-gray-400 hover:text-indigo-600 rounded"><Edit2 size={12} /></button>
+                        <button onClick={() => deleteSectionHeader(sec.id)} className="p-1 text-gray-400 hover:text-rose-500 rounded"><Trash2 size={12} /></button>
+                      </>
+                    )}
+                  </div>
+                ))}
+                <div className="flex items-center gap-2">
+                  <input
+                    value={newSectionTitle}
+                    onChange={e => setNewSectionTitle(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addSectionHeader())}
+                    placeholder="Nuevo subtítulo..."
+                    className="w-40 px-3 py-1.5 text-sm border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button onClick={addSectionHeader} disabled={addingSection || !newSectionTitle.trim()} className="px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-black disabled:opacity-50">
+                    {addingSection ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {selectionMode && (
             <div className="flex items-center gap-3 mb-4">
               <button
@@ -609,8 +768,17 @@ const MenuListPage: React.FC = () => {
             </div>
           )}
           {viewMode === 'cards' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-              {processedItems.map(item => (
+            <div className="space-y-10">
+              {groupedForDisplay.map((group, gi) => (
+                <div key={gi}>
+                  {group.sectionTitle && (
+                    <h3 className="text-lg font-black text-gray-800 mb-4 flex items-center gap-2">
+                      <Heading size={20} className="text-indigo-500" />
+                      {group.sectionTitle}
+                    </h3>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+                    {group.items.map(item => (
                 <div 
                   key={item.id} 
                   onClick={() => !selectionMode && navigate(`/edit/${item.id}`)}
@@ -655,6 +823,9 @@ const MenuListPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           ) : (
@@ -674,11 +845,25 @@ const MenuListPage: React.FC = () => {
                       <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Precio</th>
                       <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Categoría</th>
                       <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Subcategoría</th>
+                      {canAddSections && (
+                        <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Subtítulo</th>
+                      )}
                       <th className="text-right p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {processedItems.map(item => (
+                    {groupedForDisplay.map((group, gi) => (
+                      <React.Fragment key={gi}>
+                        {group.sectionTitle && (
+                          <tr className="bg-indigo-50/50 border-b border-indigo-100">
+                            <td colSpan={5 + (selectionMode ? 1 : 0) + (canAddSections ? 1 : 0)} className="p-3 pl-4">
+                              <span className="text-sm font-black text-indigo-700 flex items-center gap-2">
+                                <Heading size={16} /> {group.sectionTitle}
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                        {group.items.map(item => (
                       <tr
                         key={item.id}
                         onClick={() => !selectionMode && navigate(`/edit/${item.id}`)}
@@ -713,6 +898,20 @@ const MenuListPage: React.FC = () => {
                         <td className="p-4 font-black text-indigo-600">${Number(item.price).toLocaleString('es-CL')}</td>
                         <td className="p-4 text-sm text-gray-600">{(item as any).main_category?.name || '—'}</td>
                         <td className="p-4 text-sm text-gray-600">{(item as any).sub_category?.name || '—'}</td>
+                        {canAddSections && (
+                          <td className="p-4" onClick={e => e.stopPropagation()}>
+                            <select
+                              value={item.section_id ?? ''}
+                              onChange={e => assignSectionToItem(item.id, e.target.value || null)}
+                              className="text-sm font-medium border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 bg-white min-w-[120px]"
+                            >
+                              <option value="">Sin subtítulo</option>
+                              {sectionHeaders.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(sec => (
+                                <option key={sec.id} value={sec.id}>{sec.title}</option>
+                              ))}
+                            </select>
+                          </td>
+                        )}
                         <td className="p-4 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button onClick={(e) => { e.stopPropagation(); toggleFeatured(e, item.id, item.is_featured); }} className={`p-2 rounded-lg ${item.is_featured ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400'}`}><Star size={16} fill={item.is_featured ? 'currentColor' : 'none'} /></button>
@@ -721,6 +920,8 @@ const MenuListPage: React.FC = () => {
                           </div>
                         </td>
                       </tr>
+                        ))}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

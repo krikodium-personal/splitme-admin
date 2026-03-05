@@ -82,11 +82,21 @@ export interface VariantGroup {
   variant_options?: VariantOption[];
 }
 
+export interface MenuSectionHeader {
+  id: string;
+  restaurant_id: string;
+  category_id: string;
+  subcategory_id: string | null;
+  title: string;
+  sort_order: number;
+}
+
 export interface MenuItem {
   id: string;
   restaurant_id: string;
   category_id: string | null;
   subcategory_id: string | null;
+  section_id?: string | null;
   name: string;
   description: string;
   price: number;

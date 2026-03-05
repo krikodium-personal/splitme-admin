@@ -187,6 +187,15 @@ const MenuStructurePage: React.FC<MenuStructurePageProps> = ({ restaurant }) => 
           .eq('id', dragged.id)
           .eq('restaurant_id', restaurant.id);
         if (error) throw error;
+        const menuUpdate: { category_id: string | null; subcategory_id?: string | null } = newParentId
+          ? { category_id: newParentId }
+          : { category_id: dragged.id, subcategory_id: null };
+        const { error: menuErr } = await supabase
+          .from('menu_items')
+          .update(menuUpdate)
+          .eq('subcategory_id', dragged.id)
+          .eq('restaurant_id', restaurant.id);
+        if (menuErr) throw menuErr;
         await fetchCategories();
         if (!targetCategoryId && selectedCategoryId === dragged.parent_id) setSelectedCategoryId(null);
       } catch (err: any) {
@@ -243,6 +252,12 @@ const MenuStructurePage: React.FC<MenuStructurePageProps> = ({ restaurant }) => 
           .eq('id', dragged.id)
           .eq('restaurant_id', restaurant.id);
         if (error) throw error;
+        const { error: menuErr } = await supabase
+          .from('menu_items')
+          .update({ category_id: selectedCategoryId, subcategory_id: dragged.id })
+          .eq('category_id', dragged.id)
+          .eq('restaurant_id', restaurant.id);
+        if (menuErr) throw menuErr;
         await fetchCategories();
       } catch (err: any) {
         alert("Error al mover: " + (err?.message || ""));
