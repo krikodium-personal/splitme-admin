@@ -50,8 +50,36 @@ export interface Category {
   id: string;
   restaurant_id: string;
   name: string;
+  description?: string | null;
   parent_id: string | null;
   sort_order: number;
+}
+
+/** Tipo de precio: replace = precio total del producto, add = recargo sobre precio base */
+export type VariantPriceType = 'replace' | 'add';
+
+/** individual = elegir una opción, multiple = elegir varias */
+export type VariantSelectionType = 'individual' | 'multiple';
+
+export interface VariantOption {
+  id: string;
+  variant_group_id: string;
+  name: string;
+  description?: string | null;
+  price_type: VariantPriceType;
+  price_amount: number;
+  sort_order: number;
+}
+
+export interface VariantGroup {
+  id: string;
+  menu_item_id: string;
+  name: string;
+  selection?: VariantSelectionType;
+  max_selection?: number | null;
+  required: boolean;
+  sort_order: number;
+  variant_options?: VariantOption[];
 }
 
 export interface MenuItem {
@@ -75,7 +103,12 @@ export interface MenuItem {
   preparation_time_min: number;
   average_rating?: number;
   created_at: Date;
+  /** Grupos de variantes (tamaño, salsa, etc.) - cargar con join si el producto tiene variantes */
+  variant_groups?: VariantGroup[];
 }
+
+/** Mapeo: variant_group_id -> variant_option_id */
+export type VariantSelections = Record<string, string>;
 
 export interface OrderItem {
   id: string;
@@ -88,6 +121,8 @@ export interface OrderItem {
   notes: string | null;
   extras?: string[] | string | null;
   removed_ingredients?: string[] | string | null;
+  /** Opciones elegidas: { "variant_group_id": "variant_option_id" } */
+  variant_selections?: VariantSelections | null;
   menu_items?: {
     name: string;
   };

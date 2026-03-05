@@ -133,9 +133,17 @@ const BatchCard: React.FC<{
                   <div className="flex-1">
                     <p className="text-sm font-bold text-slate-800 leading-tight">
                       {itemName}
+                      {item._variantReplace?.map((v: string) => (
+                        <span key={v} className="text-slate-800 font-black uppercase ml-1">· {v}</span>
+                      ))}
                     </p>
-                    {(extrasArr.length > 0 || removedArr.length > 0) && (
+                    {((item._variantAdd?.length || 0) > 0 || extrasArr.length > 0 || removedArr.length > 0) && (
                       <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {(item._variantAdd || []).map((v: string) => (
+                          <span key={v} className="text-[9px] font-black uppercase bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md border border-emerald-100">
+                            +{v}
+                          </span>
+                        ))}
                         {extrasArr.map((ex: string) => (
                           <span key={ex} className="text-[9px] font-black uppercase bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md border border-emerald-100">
                             +{ex}
@@ -767,6 +775,36 @@ const OrdersPage: React.FC = () => {
               });
             }
           }
+          // Resolver variant_selections a nombres y tipo (replace=size, add=addons)
+          const optionIds = [...new Set(
+            itemsData.flatMap(item => {
+              const vs = item.variant_selections;
+              if (!vs || typeof vs !== 'object') return [];
+              return Object.values(vs).filter(Boolean);
+            })
+          )];
+          let variantOptionInfo: Record<string, { name: string; price_type: string }> = {};
+          if (optionIds.length > 0) {
+            const { data: opts } = await supabase
+              .from('variant_options')
+              .select('id, name, price_type')
+              .in('id', optionIds);
+            (opts || []).forEach((o: any) => { variantOptionInfo[o.id] = { name: o.name, price_type: o.price_type || 'add' }; });
+          }
+          itemsData = itemsData.map(item => {
+            const vs = item.variant_selections;
+            const replace: string[] = [];
+            const add: string[] = [];
+            if (vs && typeof vs === 'object') {
+              Object.values(vs).forEach(optId => {
+                const info = variantOptionInfo[optId];
+                const name = info?.name || optId;
+                if (info?.price_type === 'replace') replace.push(name);
+                else add.push(name);
+              });
+            }
+            return { ...item, _variantReplace: replace, _variantAdd: add };
+          });
         }
       }
 

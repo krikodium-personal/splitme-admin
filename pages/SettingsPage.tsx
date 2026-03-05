@@ -1,30 +1,23 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
-  Plus, Trash2, FolderTree, LayoutGrid, Layers, Store, Edit3, Check, X, 
-  AlertCircle, AlertTriangle, GripVertical, Loader2, Camera, UploadCloud, 
+  Store, AlertCircle, Loader2, Camera, UploadCloud, 
   Save, MapPin, CheckCircle2, CreditCard, Link as LinkIcon, RefreshCw, Zap,
   Key, ShieldCheck, ExternalLink, Eye, EyeOff, User
 } from 'lucide-react';
-import { Category, Restaurant, setGlobalRestaurant, PaymentConfig } from '../types';
+import { Restaurant, setGlobalRestaurant, PaymentConfig } from '../types';
 import { supabase, isSupabaseConfigured } from '../supabase';
-
-interface DeleteConfirmState {
-  show: boolean;
-  id: string | null;
-  name: string;
-  type: 'category' | 'subcategory';
-}
 
 interface SettingsPageProps {
   restaurant: Restaurant | null;
 }
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabParam = searchParams.get('tab') as 'taxonomy' | 'restaurant' | 'payments' | null;
-  const [activeTab, setActiveTab] = useState<'taxonomy' | 'restaurant' | 'payments'>(tabParam || 'taxonomy');
+  const tabParam = searchParams.get('tab') as 'restaurant' | 'payments' | 'taxonomy' | null;
+  const [activeTab, setActiveTab] = useState<'restaurant' | 'payments'>(tabParam || 'restaurant');
   
   const updateURL = (params: Record<string, string | null>) => {
     const newParams = new URLSearchParams(searchParams);
@@ -39,23 +32,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   };
   
   useEffect(() => {
-    if (tabParam && ['taxonomy', 'restaurant', 'payments'].includes(tabParam)) {
+    if (tabParam === 'taxonomy') {
+      navigate('/menu-structure', { replace: true });
+      return;
+    }
+    if (tabParam && ['restaurant', 'payments'].includes(tabParam)) {
       setActiveTab(tabParam);
     }
-  }, [tabParam]);
+  }, [tabParam, navigate]);
   
-  // Estados para Categorías
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [newSubCategoryName, setNewSubCategoryName] = useState('');
-  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState('');
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   // Estados para Información del Restaurante
   const [restName, setRestName] = useState('');
@@ -92,13 +79,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
     'Banco Rio'
   ];
 
-  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState>({
-    show: false,
-    id: null,
-    name: '',
-    type: 'category'
-  });
-
   useEffect(() => {
     if (isSupabaseConfigured) {
       if (restaurant) {
@@ -106,8 +86,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         setRestAddress(restaurant.address || '');
         setPreviewUrl(restaurant.logo_url || null);
         
-        fetchCategories();
         fetchPaymentConfig();
+        setLoading(false);
       }
     } else {
       setLoading(false);
@@ -379,34 +359,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
     }
   };
 
-  const fetchCategories = async () => {
-    if (!restaurant?.id) {
-      setLoading(false);
-      return;
-    }
-    try {
-      setLoading(true);
-      setErrorMsg(null);
-      const { data, error } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('restaurant_id', restaurant.id)
-        .order('sort_order', { ascending: true });
-      if (error) throw error;
-      if (data) {
-        setCategories(data);
-        const parentCats = data.filter(c => !c.parent_id);
-        if (parentCats.length > 0 && !selectedCategoryId) {
-          setSelectedCategoryId(parentCats[0].id);
-        }
-      }
-    } catch (err: any) {
-      setErrorMsg(`Error de carga: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -453,130 +405,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
     }
   };
 
-  const addCategory = async () => {
-    if (!newCategoryName.trim() || !restaurant?.id) return;
-    setActionLoading(true);
-    try {
-      const maxOrder = Math.max(0, ...categories.filter(c => !c.parent_id).map(c => c.sort_order || 0));
-      const { data, error } = await supabase
-        .from('categories')
-        .insert([{
-          restaurant_id: restaurant.id,
-          name: newCategoryName.trim(),
-          parent_id: null,
-          sort_order: maxOrder + 1
-        }])
-        .select();
-      if (error) throw error;
-      setNewCategoryName('');
-      await fetchCategories();
-      if (data && data.length > 0) setSelectedCategoryId(data[0].id);
-    } catch (err: any) {
-      setErrorMsg(`Error al crear: ${err.message}`);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const addSubCategory = async () => {
-    if (!newSubCategoryName.trim() || !selectedCategoryId || !restaurant?.id) return;
-    setActionLoading(true);
-    try {
-      const sibs = categories.filter(c => c.parent_id === selectedCategoryId);
-      const maxOrder = Math.max(0, ...sibs.map(c => c.sort_order || 0));
-      const { error } = await supabase
-        .from('categories')
-        .insert([{
-          restaurant_id: restaurant.id,
-          name: newSubCategoryName.trim(),
-          parent_id: selectedCategoryId,
-          sort_order: maxOrder + 1
-        }]);
-      if (error) throw error;
-      setNewSubCategoryName('');
-      await fetchCategories();
-    } catch (err: any) {
-      alert(`Error al añadir subcategoría: ${err.message}`);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const updateCategoryName = async (id: string) => {
-    if (!editingName.trim() || !restaurant?.id) return;
-    setActionLoading(true);
-    try {
-      const { error } = await supabase
-        .from('categories')
-        .update({ name: editingName.trim() })
-        .eq('id', id)
-        .eq('restaurant_id', restaurant.id);
-      if (error) throw error;
-      setEditingCategoryId(null);
-      setEditingName('');
-      await fetchCategories();
-    } catch (err: any) {
-      alert(`Error al actualizar: ${err.message}`);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleDragStart = (id: string) => setDraggingId(id);
-  const handleDragOver = (e: React.DragEvent, id: string) => { e.preventDefault(); if (id !== draggingId) setDragOverId(id); };
-  const handleDragLeave = () => setDragOverId(null);
-
-  const handleDrop = async (e: React.DragEvent, targetId: string, isSub: boolean) => {
-    e.preventDefault();
-    if (!draggingId || draggingId === targetId || !restaurant?.id) {
-      setDraggingId(null);
-      setDragOverId(null);
-      return;
-    }
-    const list = (isSub ? categories.filter(c => c.parent_id === selectedCategoryId) : categories.filter(c => !c.parent_id)).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-    const dragIndex = list.findIndex(c => c.id === draggingId);
-    const dropIndex = list.findIndex(c => c.id === targetId);
-    if (dragIndex === -1 || dropIndex === -1) { setDraggingId(null); setDragOverId(null); return; }
-    const newList = [...list];
-    const [movedItem] = newList.splice(dragIndex, 1);
-    newList.splice(dropIndex, 0, movedItem);
-    const itemsWithNewOrder = newList.map((item, index) => ({ ...item, sort_order: index + 1 }));
-    const otherCategories = categories.filter(c => !newList.find(nl => nl.id === c.id));
-    setCategories([...otherCategories, ...itemsWithNewOrder].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
-    setDraggingId(null);
-    setDragOverId(null);
-    setActionLoading(true);
-    try {
-      const { error } = await supabase.from('categories').upsert(itemsWithNewOrder.map(item => ({ id: item.id, restaurant_id: restaurant.id, name: item.name, parent_id: item.parent_id, sort_order: item.sort_order })));
-      if (error) throw error;
-    } catch (err: any) {
-      alert("Error al guardar el nuevo orden.");
-      fetchCategories();
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const executeDelete = async () => {
-    if (!deleteConfirm.id || !restaurant?.id) return;
-    setActionLoading(true);
-    try {
-      const { error } = await supabase.from('categories').delete().eq('id', deleteConfirm.id).eq('restaurant_id', restaurant.id);
-      if (error) throw error;
-      if (deleteConfirm.type === 'category' && selectedCategoryId === deleteConfirm.id) setSelectedCategoryId(null);
-      setDeleteConfirm({ show: false, id: null, name: '', type: 'category' });
-      await fetchCategories();
-    } catch (err: any) {
-      alert(`Error al eliminar: ${err.message}`);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const parentCategories = categories.filter(c => !c.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-  const currentCategory = categories.find(c => c.id === selectedCategoryId);
-  const currentSubCategories = categories.filter(c => c.parent_id === selectedCategoryId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-
   if (!restaurant && isSupabaseConfigured) {
     return (
       <div className="flex flex-col items-center justify-center py-40 gap-4">
@@ -588,25 +416,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
-      {/* Modales */}
-      {deleteConfirm.show && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-6">
-              <AlertTriangle size={32} />
-            </div>
-            <h3 className="text-xl font-black text-gray-900 mb-2">¿Eliminar {deleteConfirm.type === 'category' ? 'Categoría' : 'Subcategoría'}?</h3>
-            <p className="text-sm text-gray-500 mb-8 leading-relaxed">Estás a punto de eliminar <strong className="text-gray-900">"{deleteConfirm.name}"</strong>.</p>
-            <div className="flex gap-4">
-              <button onClick={() => setDeleteConfirm({ ...deleteConfirm, show: false })} className="flex-1 px-6 py-4 rounded-2xl font-bold text-gray-500 hover:bg-gray-100 transition-colors">Cancelar</button>
-              <button onClick={executeDelete} disabled={actionLoading} className="flex-1 px-6 py-4 rounded-2xl font-black bg-rose-600 text-white hover:bg-rose-700 shadow-xl flex items-center justify-center">
-                {actionLoading ? <Loader2 size={20} className="animate-spin" /> : "Eliminar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <h1 className="text-3xl font-black text-gray-900 tracking-tight">Configuración</h1>
@@ -616,12 +425,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         </div>
         
         <div className="flex bg-white p-1 rounded-2xl border border-gray-100 shadow-sm overflow-x-auto">
-           <button 
-            onClick={() => { setActiveTab('taxonomy'); updateURL({ tab: 'taxonomy' }); }}
-            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'taxonomy' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
-           >
-            <FolderTree size={14} /> Estructura Menú
-           </button>
            <button 
             onClick={() => { setActiveTab('restaurant'); updateURL({ tab: 'restaurant' }); }}
             className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${activeTab === 'restaurant' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
@@ -637,82 +440,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         </div>
       </div>
 
-      {activeTab === 'taxonomy' ? (
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-8 animate-in slide-in-from-left-4">
-          <div className="md:col-span-5 space-y-4">
-            <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-gray-100 flex flex-col min-h-[550px]">
-              <div className="flex items-center space-x-2 mb-8">
-                <LayoutGrid className="text-indigo-600" size={24} />
-                <h2 className="text-lg font-black text-gray-900 tracking-tight uppercase tracking-widest text-sm">Categorías Principales</h2>
-              </div>
-              <div className="space-y-3 mb-8 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                {parentCategories.map((cat) => (
-                  <div
-                    key={cat.id}
-                    draggable
-                    onDragStart={() => handleDragStart(cat.id)}
-                    onDragOver={(e) => handleDragOver(e, cat.id)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, cat.id, false)}
-                    onDragEnd={() => setDraggingId(null)}
-                    onClick={() => setSelectedCategoryId(cat.id)}
-                    className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all border-2 cursor-pointer relative group ${selectedCategoryId === cat.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl shadow-indigo-100' : 'bg-white border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-100'}`}
-                  >
-                    <div className="flex items-center space-x-4 flex-1">
-                      <div className="cursor-grab active:cursor-grabbing text-gray-300 group-hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity"><GripVertical size={18} /></div>
-                      <FolderTree size={18} className={selectedCategoryId === cat.id ? 'text-indigo-200' : 'text-gray-300'} />
-                      {editingCategoryId === cat.id ? (
-                        <div className="flex items-center gap-2 flex-1 mr-4" onClick={e => e.stopPropagation()}>
-                          <input autoFocus value={editingName} onChange={e => setEditingName(e.target.value)} onKeyDown={e => e.key === 'Enter' && updateCategoryName(cat.id)} className="w-full bg-white/20 border-none rounded-lg px-2 py-1 text-sm font-bold text-white outline-none" />
-                          <button onClick={() => updateCategoryName(cat.id)} className="p-1 hover:bg-white/20 rounded-md"><Check size={14}/></button>
-                        </div>
-                      ) : <span className="font-bold text-sm tracking-tight">{cat.name}</span>}
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      {editingCategoryId !== cat.id && <button onClick={(e) => { e.stopPropagation(); setEditingCategoryId(cat.id); setEditingName(cat.name); }} className={`p-2 rounded-xl transition-all ${selectedCategoryId === cat.id ? 'hover:bg-white/20 text-white' : 'hover:bg-gray-100 text-gray-400'}`}><Edit3 size={14} /></button>}
-                      <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ show: true, id: cat.id, name: cat.name, type: 'category' }); }} className={`p-2 rounded-xl transition-all ${selectedCategoryId === cat.id ? 'hover:bg-white/20 text-white' : 'hover:bg-rose-50 hover:text-rose-600 text-gray-400'}`}><Trash2 size={14} /></button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="pt-6 border-t border-gray-50 flex space-x-2">
-                <input type="text" placeholder="Nueva categoría..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} disabled={actionLoading} className="flex-1 bg-gray-50 border border-transparent rounded-2xl px-5 py-4 text-sm font-bold focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none" />
-                <button onClick={addCategory} disabled={actionLoading || !newCategoryName.trim()} className="p-4 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all shadow-lg disabled:opacity-50">{actionLoading ? <Loader2 size={24} className="animate-spin" /> : <Plus size={24} />}</button>
-              </div>
-            </div>
-          </div>
-          <div className="md:col-span-7">
-            {currentCategory ? (
-              <div className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-gray-100 h-full flex flex-col">
-                <div className="flex items-center justify-between mb-10 pb-6 border-b border-gray-50">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center"><Layers size={24} /></div>
-                    <div><h2 className="text-2xl font-black text-gray-900 tracking-tight">{currentCategory.name}</h2><p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Sub-agrupaciones</p></div>
-                  </div>
-                </div>
-                <div className="flex flex-col space-y-3 mb-auto overflow-y-auto pr-2 custom-scrollbar">
-                  {currentSubCategories.map((sub) => (
-                    <div key={sub.id} draggable={editingCategoryId !== sub.id} onDragStart={() => handleDragStart(sub.id)} onDragOver={(e) => handleDragOver(e, sub.id)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, sub.id, true)} className={`flex items-center justify-between p-5 bg-gray-50 border-2 border-transparent rounded-[1.5rem] group hover:bg-white hover:border-gray-100 hover:shadow-sm transition-all ${editingCategoryId === sub.id ? 'bg-indigo-50 border-indigo-100' : ''}`}>
-                      <div className="flex items-center space-x-4 flex-1 mr-4">
-                        {editingCategoryId !== sub.id && <div className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-indigo-400 transition-colors"><GripVertical size={18} /></div>}
-                        {editingCategoryId === sub.id ? <input autoFocus value={editingName} onChange={e => setEditingName(e.target.value)} onKeyDown={e => e.key === 'Enter' && updateCategoryName(sub.id)} className="flex-1 bg-white border-2 border-indigo-200 rounded-xl px-4 py-2 text-sm font-bold text-indigo-900 outline-none" /> : <span className="font-bold text-gray-700 tracking-tight">{sub.name}</span>}
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {editingCategoryId === sub.id ? <button onClick={() => updateCategoryName(sub.id)} className="p-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-all shadow-md"><Check size={16}/></button> : <button onClick={() => { setEditingCategoryId(sub.id); setEditingName(sub.name); }} className="p-2 text-gray-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"><Edit3 size={18} /></button>}
-                        <button onClick={() => setDeleteConfirm({ show: true, id: sub.id, name: sub.name, type: 'subcategory' })} className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"><Trash2 size={18} /></button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-10 pt-8 border-t border-gray-50 flex space-x-3">
-                  <input type="text" placeholder="Ej: Pasta Larga..." value={newSubCategoryName} onChange={(e) => setNewSubCategoryName(e.target.value)} disabled={actionLoading} className="flex-1 bg-gray-50 border border-transparent rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  <button onClick={addSubCategory} disabled={actionLoading || !newSubCategoryName.trim()} className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg flex items-center space-x-3 disabled:opacity-50">{actionLoading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={20} />}<span className="text-xs uppercase tracking-widest">Añadir</span></button>
-                </div>
-              </div>
-            ) : <div className="bg-white rounded-[2.5rem] border border-gray-100 h-full flex flex-col items-center justify-center p-12 text-center shadow-sm"><Store size={40} className="text-gray-200 mb-6" /><h3 className="text-xl font-black text-gray-900 mb-2">Editor de Taxonomía</h3><p className="text-gray-400 text-sm">Selecciona una categoría principal para gestionar subcategorías.</p></div>}
-          </div>
-        </div>
-      ) : activeTab === 'restaurant' ? (
+      {activeTab === 'restaurant' ? (
         <div className="bg-white rounded-[3rem] border border-gray-100 shadow-xl overflow-hidden animate-in slide-in-from-right-4">
            <div className="bg-gray-50 px-12 py-8 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-3">

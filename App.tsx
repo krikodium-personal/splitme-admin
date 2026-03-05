@@ -4,17 +4,19 @@ import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate, Navigate 
 import { 
   LayoutDashboard, PlusCircle, List, Settings, LogOut, ShoppingBag, 
   Store, Users, Grid, AlertTriangle, Loader2, Globe, ShieldCheck, RefreshCw,
-  MessageSquareQuote, BarChart3, Bell, X, CheckCircle2, DollarSign, Menu
+  MessageSquareQuote, BarChart3, Bell, X, CheckCircle2, DollarSign, Menu, FolderTree
 } from 'lucide-react';
 import CreateItemPage from './pages/CreateItemPage';
 import MenuListPage from './pages/MenuListPage';
 import SettingsPage from './pages/SettingsPage';
+import MenuStructurePage from './pages/MenuStructurePage';
 import OrdersPage from './pages/OrdersPage';
 import WaitersPage from './pages/WaitersPage';
 import TablesPage from './pages/TablesPage';
 import LoginPage from './pages/LoginPage';
 import SuperAdminPage from './pages/SuperAdminPage';
 import RestaurantDetailsPage from './pages/RestaurantDetailsPage';
+import RestaurantUsersPage from './pages/RestaurantUsersPage';
 import DashboardPage from './pages/DashboardPage';
 import FeedbackPage from './pages/FeedbackPage';
 import { Restaurant, Profile, setGlobalRestaurant } from './types';
@@ -68,6 +70,8 @@ const SidebarLink = ({ to, icon: Icon, label, badgeCount, onNavigate, onMobileCl
 
 const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, restaurant: Restaurant | null }> = ({ children, profile, restaurant }) => {
   const location = useLocation();
+  const restaurantIdFromPath = location.pathname.match(/^\/super-admin\/restaurant\/([^/]+)/)?.[1];
+  const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
   const [toasts, setToasts] = useState<PaymentToast[]>([]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -76,6 +80,16 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
   const [newBatchesByOrder, setNewBatchesByOrder] = useState<Set<string>>(new Set());
   const notifiedBatchesRef = useRef<Set<string>>(new Set()); // Para evitar notificar el mismo batch dos veces
   
+  // Cargar restaurante seleccionado cuando super_admin navega a uno
+  useEffect(() => {
+    if (restaurantIdFromPath) {
+      supabase.from('restaurants').select('*').eq('id', restaurantIdFromPath).single()
+        .then(({ data }) => setSelectedRestaurant(data || null));
+    } else {
+      setSelectedRestaurant(null);
+    }
+  }, [restaurantIdFromPath]);
+
   // Limpiar notificaciones cuando se está en la página de Pedidos
   useEffect(() => {
     if (location.pathname === '/orders') {
@@ -340,9 +354,17 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: 'local' });
+      // Limpiar localStorage de Supabase (signOut a veces no lo hace en localhost)
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('sb-')) localStorage.removeItem(key);
+      });
+      window.location.href = '/login';
     } catch (error) {
       console.error("Error signing out:", error);
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('sb-')) localStorage.removeItem(key);
+      });
       window.location.href = '/login';
     }
   };
@@ -411,12 +433,33 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
         </div>
         <nav className="space-y-2 flex-1">
           {profile?.role === 'super_admin' ? (
-            <SidebarLink 
-              to="/super-admin" 
-              icon={Globe} 
-              label="Vista Global" 
-              onMobileClick={() => setIsMobileMenuOpen(false)}
-            />
+            <>
+              <SidebarLink 
+                to="/super-admin" 
+                icon={Globe} 
+                label="Inicio" 
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+              {restaurantIdFromPath && (
+                <>
+                  <div className="px-4 py-2 mt-4 text-xs font-black text-gray-400 uppercase tracking-widest truncate">
+                    {selectedRestaurant?.name || 'Cargando...'}
+                  </div>
+                  <SidebarLink 
+                    to={`/super-admin/restaurant/${restaurantIdFromPath}`}
+                    icon={Store}
+                    label="Datos del restaurante"
+                    onMobileClick={() => setIsMobileMenuOpen(false)}
+                  />
+                  <SidebarLink 
+                    to={`/super-admin/restaurant/${restaurantIdFromPath}/users`}
+                    icon={Users} 
+                    label="Usuarios" 
+                    onMobileClick={() => setIsMobileMenuOpen(false)}
+                  />
+                </>
+              )}
+            </>
           ) : (
             <>
               <SidebarLink 
@@ -470,6 +513,12 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
                 onMobileClick={() => setIsMobileMenuOpen(false)}
               />
               <SidebarLink 
+                to="/menu-structure" 
+                icon={FolderTree} 
+                label="Estructura menú" 
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+              <SidebarLink 
                 to="/settings" 
                 icon={Settings} 
                 label="Configuración" 
@@ -506,7 +555,26 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
           </div>
           <nav className="space-y-2 flex-1">
             {profile?.role === 'super_admin' ? (
-              <SidebarLink to="/super-admin" icon={Globe} label="Vista Global" />
+              <>
+                <SidebarLink to="/super-admin" icon={Globe} label="Inicio" />
+                {restaurantIdFromPath && (
+                  <>
+                    <div className="px-4 py-2 mt-4 text-xs font-black text-gray-400 uppercase tracking-widest truncate">
+                      {selectedRestaurant?.name || 'Cargando...'}
+                    </div>
+                    <SidebarLink 
+                      to={`/super-admin/restaurant/${restaurantIdFromPath}`}
+                      icon={Store}
+                      label="Datos del restaurante"
+                    />
+                    <SidebarLink 
+                      to={`/super-admin/restaurant/${restaurantIdFromPath}/users`}
+                      icon={Users} 
+                      label="Usuarios" 
+                    />
+                  </>
+                )}
+              </>
             ) : (
               <>
                 <SidebarLink to="/" icon={LayoutDashboard} label="Dashboard" />
@@ -528,6 +596,7 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
                 <SidebarLink to="/waiters" icon={Users} label="Meseros" />
                 <SidebarLink to="/feedback" icon={BarChart3} label="Calidad" />
                 <SidebarLink to="/create" icon={PlusCircle} label="Añadir" />
+                <SidebarLink to="/menu-structure" icon={FolderTree} label="Estructura menú" />
                 <SidebarLink to="/settings" icon={Settings} label="Configuración" />
               </>
             )}
@@ -638,6 +707,7 @@ const App: React.FC = () => {
                   <>
                     <Route path="/super-admin" element={<SuperAdminPage />} />
                     <Route path="/super-admin/restaurant/:id" element={<RestaurantDetailsPage />} />
+                    <Route path="/super-admin/restaurant/:id/users" element={<RestaurantUsersPage />} />
                     <Route path="*" element={<Navigate to="/super-admin" />} />
                   </>
                 ) : (
@@ -650,6 +720,7 @@ const App: React.FC = () => {
                     <Route path="/tables" element={<TablesPage />} />
                     <Route path="/waiters" element={<WaitersPage />} />
                     <Route path="/feedback" element={<FeedbackPage />} />
+                    <Route path="/menu-structure" element={<MenuStructurePage restaurant={restaurant} />} />
                     <Route path="/settings" element={<SettingsPage restaurant={restaurant} />} />
                     <Route path="*" element={<Navigate to="/" />} />
                   </>

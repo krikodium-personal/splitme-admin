@@ -301,9 +301,9 @@ const RestaurantDetailsPage: React.FC = () => {
                <DollarSign size={80} className="text-emerald-600" />
             </div>
             <div className="relative">
-              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2 flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div> Facturación (Pagado)
-              </p>
+              <div className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse block"></span> Facturación (Pagado)
+              </div>
               {statsLoading ? (
                 <div className="h-10 w-48 bg-gray-100 animate-pulse rounded-lg"></div>
               ) : (

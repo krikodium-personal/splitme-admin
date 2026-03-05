@@ -3,12 +3,38 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { 
   Camera, Save, CheckCircle2, Settings, Tag, Plus, 
-  ArrowLeft, Star, Loader2, Image as ImageIcon, Utensils
+  ArrowLeft, Star, Loader2, Image as ImageIcon, Utensils,
+  Layers, Trash2, GripVertical, BookmarkPlus, Copy
 } from 'lucide-react';
-import { NewMenuItem, Category, CURRENT_RESTAURANT } from '../types';
+import { NewMenuItem, Category, CURRENT_RESTAURANT, VariantPriceType, VariantSelectionType } from '../types';
 import TagInput from '../components/TagInput';
 import NutritionInput from '../components/NutritionInput';
 import { supabase, isSupabaseConfigured } from '../supabase';
+
+interface VariantOptionForm {
+  id?: string;
+  name: string;
+  description?: string;
+  price_type: VariantPriceType;
+  price_amount: number;
+  sort_order: number;
+}
+
+interface VariantGroupForm {
+  id?: string;
+  name: string;
+  selection: VariantSelectionType;
+  max_selection?: number | null;
+  required: boolean;
+  sort_order: number;
+  options: VariantOptionForm[];
+}
+
+interface VariantTemplate {
+  id: string;
+  name: string;
+  groups: { id: string; name: string; selection: VariantSelectionType; max_selection?: number | null; required: boolean; sort_order: number; options: { id: string; name: string; description?: string; price_type: VariantPriceType; price_amount: number; sort_order: number }[] }[];
+}
 
 const CreateItemPage: React.FC = () => {
   const navigate = useNavigate();
@@ -27,6 +53,11 @@ const CreateItemPage: React.FC = () => {
   const [globalTags, setGlobalTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState('');
   const [priceDisplay, setPriceDisplay] = useState('');
+  const [variantGroups, setVariantGroups] = useState<VariantGroupForm[]>([]);
+  const [variantTemplates, setVariantTemplates] = useState<VariantTemplate[]>([]);
+  const [templateNameInput, setTemplateNameInput] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
 
   const [formData, setFormData] = useState<NewMenuItem & { average_rating?: number }>({
     restaurant_id: CURRENT_RESTAURANT?.id || '',
@@ -67,6 +98,51 @@ const CreateItemPage: React.FC = () => {
 
       const savedTags = JSON.parse(localStorage.getItem(`splitme_tags_${CURRENT_RESTAURANT.id}`) || '["Vegetariano", "Sin Gluten", "Vegano", "Picante", "Chef Suggestion"]');
       setGlobalTags(savedTags);
+
+      const { data: templates } = await supabase
+        .from('variant_templates')
+        .select('id, name')
+        .eq('restaurant_id', CURRENT_RESTAURANT.id)
+        .order('name');
+      if (templates?.length) {
+        const { data: groups } = await supabase
+          .from('variant_group_templates')
+          .select('*')
+          .in('variant_template_id', templates.map(t => t.id))
+          .order('sort_order');
+        const groupIds = (groups || []).map(g => g.id);
+        const { data: opts } = groupIds.length ? await supabase
+          .from('variant_option_templates')
+          .select('*')
+          .in('variant_group_template_id', groupIds)
+          .order('sort_order') : { data: [] };
+        setVariantTemplates(templates.map(t => ({
+          id: t.id,
+          name: t.name,
+          groups: (groups || [])
+            .filter(g => g.variant_template_id === t.id)
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+            .map(g => ({
+              id: g.id,
+              name: g.name,
+              selection: (g.selection === 'multiple' ? 'multiple' : 'individual') as VariantSelectionType,
+              max_selection: g.max_selection != null ? Number(g.max_selection) : null,
+              required: g.required ?? true,
+              sort_order: g.sort_order ?? 0,
+              options: (opts || [])
+                .filter(o => o.variant_group_template_id === g.id)
+                .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+                .map(o => ({
+                  id: o.id,
+                  name: o.name,
+                  description: o.description ?? '',
+                  price_type: o.price_type as VariantPriceType,
+                  price_amount: Number(o.price_amount) || 0,
+                  sort_order: o.sort_order ?? 0
+                }))
+            }))
+        })));
+      }
     } catch (e) {
       console.error("Error al cargar categorías:", e);
     }
@@ -112,6 +188,39 @@ const CreateItemPage: React.FC = () => {
         });
         setPriceDisplay(new Intl.NumberFormat('es-CL').format(data.price));
         setPreviewUrl(data.image_url);
+
+        // Cargar variantes
+        const { data: groups } = await supabase
+          .from('variant_groups')
+          .select('*')
+          .eq('menu_item_id', id)
+          .order('sort_order');
+        if (groups?.length) {
+          const { data: allOptions } = await supabase
+            .from('variant_options')
+            .select('*')
+            .in('variant_group_id', groups.map(g => g.id))
+            .order('sort_order');
+          setVariantGroups(groups.map(g => ({
+            id: g.id,
+            name: g.name,
+            selection: (g.selection === 'multiple' ? 'multiple' : 'individual') as VariantSelectionType,
+            max_selection: g.max_selection != null ? Number(g.max_selection) : null,
+            required: g.required ?? true,
+            sort_order: g.sort_order ?? 0,
+            options: (allOptions || [])
+              .filter(o => o.variant_group_id === g.id)
+              .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+              .map(o => ({
+                id: o.id,
+                name: o.name,
+                description: o.description ?? '',
+                price_type: o.price_type as VariantPriceType,
+                price_amount: Number(o.price_amount) || 0,
+                sort_order: o.sort_order ?? 0
+              }))
+          })));
+        }
       }
     } catch (err) {
       console.error("Error al cargar producto:", err);
@@ -161,6 +270,84 @@ const CreateItemPage: React.FC = () => {
     }
   };
 
+  const handleSaveAsTemplate = async () => {
+    const name = templateNameInput.trim();
+    if (!name || !CURRENT_RESTAURANT?.id) return;
+    const valid = variantGroups.filter(g => g.name.trim() && g.options.some(o => (o.name ?? '').trim()));
+    if (!valid.length) {
+      alert('Agrega al menos un grupo con nombre y al menos una opción para guardar como plantilla.');
+      return;
+    }
+    setSavingTemplate(true);
+    try {
+      const { data: tpl, error: tplErr } = await supabase.from('variant_templates').insert({
+        restaurant_id: CURRENT_RESTAURANT.id,
+        name
+      }).select('id').single();
+      if (tplErr) throw tplErr;
+      if (!tpl?.id) throw new Error('No se pudo crear la plantilla');
+      for (let i = 0; i < valid.length; i++) {
+        const g = valid[i];
+        const { data: grp, error: grpErr } = await supabase.from('variant_group_templates').insert({
+          variant_template_id: tpl.id,
+          name: g.name.trim(),
+          selection: g.selection || 'individual',
+          max_selection: g.selection === 'multiple' && g.max_selection != null && g.max_selection > 0 ? g.max_selection : null,
+          required: g.required,
+          sort_order: i
+        }).select('id').single();
+        if (grpErr) throw grpErr;
+        if (!grp?.id) continue;
+        for (let j = 0; j < g.options.length; j++) {
+          const o = g.options[j];
+          const optName = (o.name ?? '').trim() || 'Opción';
+          await supabase.from('variant_option_templates').insert({
+            variant_group_template_id: grp.id,
+            name: optName,
+            description: (o.description ?? '').trim() || null,
+            price_type: o.price_type,
+            price_amount: Number(o.price_amount) ?? 0,
+            sort_order: j
+          });
+        }
+      }
+      setTemplateNameInput('');
+      await fetchInitialData();
+      alert('Plantilla guardada. Ya puedes aplicarla a otros platos.');
+    } catch (err: any) {
+      alert(`Error: ${err.message || 'No se pudo guardar la plantilla.'}`);
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const hasReplacePriceVariants = variantGroups.some(g => g.required && g.options.some(o => o.price_type === 'replace'));
+
+  const handleApplyTemplate = async (templateId: string) => {
+    const tpl = variantTemplates.find(t => t.id === templateId);
+    if (!tpl?.groups?.length) return;
+    setApplyingTemplate(true);
+    try {
+      const groups: VariantGroupForm[] = tpl.groups.map((g, gi) => ({
+        name: g.name,
+        selection: g.selection || 'individual',
+        max_selection: g.max_selection ?? null,
+        required: g.required,
+        sort_order: gi,
+        options: g.options.map((o, oi) => ({
+          name: o.name,
+          description: o.description ?? '',
+          price_type: o.price_type,
+          price_amount: o.price_amount,
+          sort_order: oi
+        }))
+      }));
+      setVariantGroups(groups);
+    } finally {
+      setApplyingTemplate(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSupabaseConfigured || !CURRENT_RESTAURANT?.id) return;
@@ -168,7 +355,7 @@ const CreateItemPage: React.FC = () => {
     const newErrors: string[] = [];
     if (!formData.name.trim()) newErrors.push('name');
     if (!formData.category_id) newErrors.push('category_id');
-    if (formData.price <= 0) newErrors.push('price');
+    if (!hasReplacePriceVariants && formData.price <= 0) newErrors.push('price');
 
     if (newErrors.length > 0) {
       setErrors(newErrors);
@@ -216,13 +403,93 @@ const CreateItemPage: React.FC = () => {
         }
       };
 
-      const { error } = isEditing 
-        ? await supabase.from('menu_items').update(payload).eq('id', id)
-        : await supabase.from('menu_items').insert([payload]);
+      const { data: insertedResult, error } = isEditing 
+        ? await supabase.from('menu_items').update(payload).eq('id', id).select('id').single()
+        : await supabase.from('menu_items').insert([payload]).select('id').single();
 
       if (error) throw error;
 
+      const menuItemId = (isEditing ? id : insertedResult?.id) as string;
+      if (menuItemId && variantGroups.length > 0) {
+        const existingGroupIds = new Set(variantGroups.filter(g => g.id).map(g => g.id!));
+        const insertedOptionIdsByGroup = new Map<string, Set<string>>();
+        for (const group of variantGroups) {
+          let groupId: string;
+          if (group.id && existingGroupIds.has(group.id)) {
+            const { error: updErr } = await supabase.from('variant_groups').update({
+              name: group.name,
+              selection: group.selection || 'individual',
+              max_selection: group.selection === 'multiple' && group.max_selection != null && group.max_selection > 0 ? group.max_selection : null,
+              required: group.required,
+              sort_order: group.sort_order
+            }).eq('id', group.id);
+            if (updErr) throw updErr;
+            groupId = group.id;
+          } else {
+            const { data: newGroup, error: insErr } = await supabase.from('variant_groups').insert({
+              menu_item_id: menuItemId,
+              name: group.name,
+              selection: group.selection || 'individual',
+              max_selection: group.selection === 'multiple' && group.max_selection != null && group.max_selection > 0 ? group.max_selection : null,
+              required: group.required,
+              sort_order: group.sort_order
+            }).select('id').single();
+            if (insErr) throw insErr;
+            if (!newGroup?.id) throw new Error('No se pudo crear el grupo de variantes');
+            groupId = newGroup.id;
+            group.id = groupId;
+          }
+          const existingOptIds = new Set(group.options.filter(o => o.id).map(o => o.id!));
+          const insertedIds = new Set<string>();
+          for (const opt of group.options) {
+            if (opt.id && existingOptIds.has(opt.id)) {
+              const { error: optUpdErr } = await supabase.from('variant_options').update({
+                name: opt.name,
+                description: (opt.description ?? '').trim() || null,
+                price_type: opt.price_type,
+                price_amount: opt.price_amount,
+                sort_order: opt.sort_order
+              }).eq('id', opt.id);
+              if (optUpdErr) throw optUpdErr;
+            } else {
+              const { data: newOpt, error: optInsErr } = await supabase.from('variant_options').insert({
+                variant_group_id: groupId,
+                name: (opt.name ?? '').trim() || 'Opción',
+                description: (opt.description ?? '').trim() || null,
+                price_type: opt.price_type,
+                price_amount: Number(opt.price_amount) ?? 0,
+                sort_order: Number(opt.sort_order) ?? 0
+              }).select('id').single();
+              if (optInsErr) throw optInsErr;
+              if (newOpt?.id) insertedIds.add(newOpt.id);
+            }
+          }
+          insertedOptionIdsByGroup.set(groupId, insertedIds);
+        }
+        if (isEditing) {
+          const { data: currentGroups } = await supabase.from('variant_groups').select('id').eq('menu_item_id', menuItemId);
+          const keptGroupIds = new Set(variantGroups.map(g => g.id).filter(Boolean));
+          for (const g of currentGroups || []) {
+            if (!keptGroupIds.has(g.id)) {
+              await supabase.from('variant_groups').delete().eq('id', g.id);
+            }
+          }
+          for (const group of variantGroups) {
+            if (!group.id) continue;
+            const { data: currentOpts } = await supabase.from('variant_options').select('id').eq('variant_group_id', group.id);
+            const keptOptIds = new Set(group.options.map(o => o.id).filter(Boolean));
+            const justInserted = insertedOptionIdsByGroup.get(group.id) ?? new Set();
+            for (const o of currentOpts || []) {
+              if (!keptOptIds.has(o.id) && !justInserted.has(o.id)) {
+                await supabase.from('variant_options').delete().eq('id', o.id);
+              }
+            }
+          }
+        }
+      }
+
       setSuccess(true);
+      if (isEditing) await fetchItemToEdit();
       setTimeout(() => {
         setSuccess(false);
         if (!isEditing) navigate('/menu');
@@ -348,7 +615,7 @@ const CreateItemPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-8">
                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Precio *</label>
+                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Precio {hasReplacePriceVariants ? '(opcional)' : '*'}</label>
                   <input 
                     type="text" value={priceDisplay} onChange={handlePriceChange} 
                     className={`w-full p-5 bg-gray-50 border-2 rounded-2xl outline-none font-black text-xl ${errors.includes('price') ? 'border-rose-500' : 'border-transparent text-indigo-600 focus:ring-2 focus:ring-indigo-500'}`}
@@ -384,6 +651,212 @@ const CreateItemPage: React.FC = () => {
               <TagInput label="Opciones de retiro" placeholder="Ej: Sin cebolla, Sin ají..." tags={formData.ingredientsToRemove} onChange={tags => setFormData({...formData, ingredientsToRemove: tags})} variant="rose" />
             </div>
           </section>
+
+          <section className="bg-white rounded-[2.5rem] p-10 border border-gray-100 shadow-sm space-y-8">
+              <div className="flex items-center justify-between border-b border-gray-50 pb-4">
+                <div className="flex items-center gap-4 text-violet-600">
+                  <Layers size={20} />
+                  <h2 className="text-sm font-black uppercase tracking-widest">Variantes (Tamaño, Salsa, etc.)</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setVariantGroups(prev => [...prev, { name: '', selection: 'individual', max_selection: null, required: true, sort_order: prev.length, options: [] }])}
+                  className="px-4 py-2 bg-violet-100 text-violet-700 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-violet-200 transition-all flex items-center gap-2"
+                >
+                  <Plus size={14} /> Agregar grupo
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-4 p-4 bg-violet-50/50 rounded-2xl border border-violet-100">
+                <div className="flex items-center gap-2">
+                  <Copy size={16} className="text-violet-600" />
+                  <select
+                    value=""
+                    onChange={e => { const v = e.target.value; if (v) handleApplyTemplate(v); e.target.value = ''; }}
+                    disabled={!variantTemplates.length || applyingTemplate}
+                    className="p-2.5 bg-white border border-violet-200 rounded-xl text-sm font-bold text-violet-800 outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50"
+                  >
+                    <option value="">Aplicar plantilla...</option>
+                    {variantTemplates.filter(t => t.groups?.length).map(t => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.groups.length} grupos)</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="h-4 w-px bg-violet-200" />
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <BookmarkPlus size={16} className="text-violet-600 shrink-0" />
+                  <input
+                    value={templateNameInput}
+                    onChange={e => setTemplateNameInput(e.target.value)}
+                    placeholder="Guardar actual como plantilla (ej: Pizza clásica)"
+                    className="flex-1 min-w-0 p-2.5 bg-white border border-violet-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveAsTemplate}
+                    disabled={savingTemplate || !templateNameInput.trim() || !variantGroups.some(g => g.name.trim() && g.options.length)}
+                    className="px-4 py-2.5 bg-violet-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-violet-700 disabled:opacity-50 transition-all shrink-0"
+                  >
+                    {savingTemplate ? <Loader2 size={14} className="animate-spin" /> : 'Guardar'}
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 -mt-4">
+                <strong>replace</strong>: precio total (ej. pizzas por tamaño). <strong>add</strong>: recargo sobre precio base (ej. salsas especiales).
+              </p>
+              <div className="space-y-6">
+                {variantGroups.map((group, gi) => (
+                  <div key={gi} className="p-6 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <GripVertical size={18} className="text-gray-400" />
+                      <input
+                        value={group.name}
+                        onChange={e => setVariantGroups(prev => {
+                          const next = [...prev];
+                          next[gi] = { ...next[gi], name: e.target.value };
+                          return next;
+                        })}
+                        placeholder="Nombre del grupo (ej: Tamaño, Salsa)"
+                        className="flex-1 min-w-[140px] p-3 bg-white border-2 border-transparent rounded-xl font-bold outline-none focus:ring-2 focus:ring-violet-500"
+                      />
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase text-gray-500 whitespace-nowrap">Tipo de selección:</span>
+                        <select
+                          value={group.selection || 'individual'}
+                          onChange={e => setVariantGroups(prev => {
+                            const next = [...prev];
+                            next[gi] = { ...next[gi], selection: e.target.value as VariantSelectionType, max_selection: e.target.value === 'multiple' ? next[gi].max_selection : null };
+                            return next;
+                          })}
+                          className="p-2.5 bg-white border border-violet-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"
+                        >
+                          <option value="individual">Individual</option>
+                          <option value="multiple">Múltiple</option>
+                        </select>
+                      </div>
+                      {group.selection === 'multiple' && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase text-gray-500 whitespace-nowrap">Máx. selecciones:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={group.max_selection ?? ''}
+                            onChange={e => {
+                              const v = e.target.value;
+                              const n = v === '' ? null : Math.max(1, parseInt(v, 10) || 1);
+                              setVariantGroups(prev => {
+                                const next = [...prev];
+                                next[gi] = { ...next[gi], max_selection: n };
+                                return next;
+                              });
+                            }}
+                            placeholder="Sin límite"
+                            className="w-20 p-2.5 bg-white border border-violet-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-violet-500"
+                          />
+                        </div>
+                      )}
+                      <label className="flex items-center gap-2 text-sm font-bold text-gray-600">
+                        <input
+                          type="checkbox"
+                          checked={group.required}
+                          onChange={e => setVariantGroups(prev => {
+                            const next = [...prev];
+                            next[gi] = { ...next[gi], required: e.target.checked };
+                            return next;
+                          })}
+                          className="w-4 h-4 rounded border-gray-300 text-violet-600"
+                        />
+                        Obligatorio
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setVariantGroups(prev => prev.filter((_, i) => i !== gi))}
+                        className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                    <div className="pl-6 space-y-3">
+                      {group.options.map((opt, oi) => (
+                        <div key={oi} className="p-3 bg-white rounded-xl border border-gray-100 space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <input
+                              value={opt.name}
+                              onChange={e => setVariantGroups(prev => {
+                                const next = [...prev];
+                                next[gi].options = [...next[gi].options];
+                                next[gi].options[oi] = { ...next[gi].options[oi], name: e.target.value };
+                                return next;
+                              })}
+                              placeholder="Nombre opción"
+                              className="w-36 p-2 bg-gray-50 border rounded-lg text-sm font-medium"
+                            />
+                            <select
+                              value={opt.price_type}
+                              onChange={e => setVariantGroups(prev => {
+                                const next = [...prev];
+                                next[gi].options = [...next[gi].options];
+                                next[gi].options[oi] = { ...next[gi].options[oi], price_type: e.target.value as VariantPriceType };
+                                return next;
+                              })}
+                              className="p-2 bg-gray-50 border rounded-lg text-sm font-medium"
+                            >
+                              <option value="replace">Precio total</option>
+                              <option value="add">Recargo</option>
+                            </select>
+                            <input
+                              type="number"
+                              value={opt.price_amount || ''}
+                              onChange={e => setVariantGroups(prev => {
+                                const next = [...prev];
+                                next[gi].options = [...next[gi].options];
+                                next[gi].options[oi] = { ...next[gi].options[oi], price_amount: Number(e.target.value) || 0 };
+                                return next;
+                              })}
+                              placeholder="Monto"
+                              className="w-24 p-2 bg-gray-50 border rounded-lg text-sm font-medium"
+                            />
+                            <span className="text-xs text-gray-500">$</span>
+                            <button
+                              type="button"
+                              onClick={() => setVariantGroups(prev => {
+                                const next = [...prev];
+                                next[gi].options = next[gi].options.filter((_, i) => i !== oi);
+                                return next;
+                              })}
+                              className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          <input
+                            value={opt.description ?? ''}
+                            onChange={e => setVariantGroups(prev => {
+                              const next = [...prev];
+                              next[gi].options = [...next[gi].options];
+                              next[gi].options[oi] = { ...next[gi].options[oi], description: e.target.value };
+                              return next;
+                            })}
+                            placeholder="Descripción (opcional)"
+                            className="w-full p-2 bg-gray-50 border rounded-lg text-xs font-medium"
+                          />
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setVariantGroups(prev => {
+                          const next = [...prev];
+                          next[gi].options = [...next[gi].options, { name: '', description: '', price_type: 'add', price_amount: 0, sort_order: next[gi].options.length }];
+                          return next;
+                        })}
+                        className="text-[10px] font-black text-violet-600 uppercase tracking-widest flex items-center gap-1"
+                      >
+                        <Plus size={12} /> Agregar opción
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
 
           <NutritionInput data={formData.nutrition} onChange={n => setFormData({...formData, nutrition: n})} />
         </div>

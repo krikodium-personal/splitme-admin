@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit2, Trash2, Star, AlertTriangle, Store, Tag, Search, Utensils, ChevronRight, ArrowUpDown, Loader2, X, Save } from 'lucide-react';
+import { Plus, Edit2, Trash2, Star, AlertTriangle, Store, Tag, Search, Utensils, ChevronRight, ArrowUpDown, Loader2, X, Save, LayoutGrid, List, CheckSquare, Square } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { CURRENT_RESTAURANT, MenuItem } from '../types';
 import { supabase } from '../supabase';
@@ -27,6 +27,13 @@ const MenuListPage: React.FC = () => {
   const [editingTags, setEditingTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState('');
   const [savingTags, setSavingTags] = useState(false);
+
+  const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkCategoryId, setBulkCategoryId] = useState<string>('');
+  const [bulkSubcategoryId, setBulkSubcategoryId] = useState<string>('');
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   useEffect(() => {
     fetchInitialData();
@@ -192,6 +199,70 @@ const MenuListPage: React.FC = () => {
     }
   };
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === processedItems.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(processedItems.map(i => i.id)));
+    }
+  };
+
+  const handleBulkAssignCategory = async () => {
+    if (!bulkCategoryId || selectedIds.size === 0) return;
+    setBulkSaving(true);
+    try {
+      const payload: Record<string, unknown> = { category_id: bulkCategoryId };
+      if (bulkSubcategoryId) {
+        payload.subcategory_id = bulkSubcategoryId;
+      } else {
+        payload.subcategory_id = null;
+      }
+      const { error } = await supabase
+        .from('menu_items')
+        .update(payload)
+        .in('id', Array.from(selectedIds));
+
+      if (error) throw error;
+
+      const mainCat = categories.find(c => c.id === bulkCategoryId);
+      const subCat = bulkSubcategoryId ? categories.find(c => c.id === bulkSubcategoryId) : null;
+
+      setItems(prev => prev.map(item => 
+        selectedIds.has(item.id) 
+          ? { 
+              ...item, 
+              category_id: bulkCategoryId, 
+              subcategory_id: bulkSubcategoryId || null,
+              main_category: mainCat ? { id: mainCat.id, name: mainCat.name } : null,
+              sub_category: subCat ? { id: subCat.id, name: subCat.name } : null
+            } 
+          : item
+      ));
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+      setBulkCategoryId('');
+      setBulkSubcategoryId('');
+    } catch (err: any) {
+      alert(`Error: ${err.message || 'No se pudo guardar.'}`);
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  const bulkSubCats = useMemo(() => {
+    if (!bulkCategoryId) return [];
+    return categories.filter(c => c.parent_id === bulkCategoryId);
+  }, [categories, bulkCategoryId]);
+
   const processedItems = useMemo(() => {
     let filtered = items.filter(item => {
       const matchesParent = !selectedParentId || item.category_id === selectedParentId;
@@ -204,6 +275,9 @@ const MenuListPage: React.FC = () => {
       return matchesParent && matchesSub && matchesSearch && matchesFeatured && matchesNew && matchesAvailable;
     });
 
+    if (!selectedParentId && !selectedSubId) {
+      return filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es'));
+    }
     switch (sortMode) {
       case 'rating':
         return filtered.sort((a, b) => (b.average_rating || 0) - (a.average_rating || 0));
@@ -364,16 +438,54 @@ const MenuListPage: React.FC = () => {
         </div>
       )}
 
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-        <div>
-          <h1 className="text-4xl font-black text-gray-900 tracking-tighter">Productos</h1>
-          <p className="text-gray-500 mt-1 font-medium flex items-center gap-2">
-            Carta de <span className="font-bold text-indigo-600">{CURRENT_RESTAURANT?.name || 'su restaurante'}</span>
-          </p>
+      {selectedIds.size > 0 && (
+        <div className="sticky top-4 z-40 bg-indigo-600 text-white rounded-2xl p-4 shadow-xl flex flex-wrap items-center gap-4 animate-in slide-in-from-bottom-2">
+          <span className="font-black text-sm">{selectedIds.size} producto{selectedIds.size !== 1 ? 's' : ''} seleccionado{selectedIds.size !== 1 ? 's' : ''}</span>
+          <div className="flex items-center gap-2">
+            <select
+              value={bulkCategoryId}
+              onChange={(e) => { setBulkCategoryId(e.target.value); setBulkSubcategoryId(''); }}
+              className="bg-white/20 border border-white/30 rounded-xl px-4 py-2.5 text-sm font-bold text-white outline-none focus:ring-2 focus:ring-white/50 [&>option]:text-gray-900"
+            >
+              <option value="">Categoría...</option>
+              {parentCats.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <select
+              value={bulkSubcategoryId}
+              onChange={(e) => setBulkSubcategoryId(e.target.value)}
+              disabled={!bulkCategoryId}
+              className="bg-white/20 border border-white/30 rounded-xl px-4 py-2.5 text-sm font-bold text-white outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50 [&>option]:text-gray-900"
+            >
+              <option value="">Subcategoría (opcional)</option>
+              {bulkSubCats.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={handleBulkAssignCategory}
+            disabled={!bulkCategoryId || bulkSaving}
+            className="px-6 py-2.5 bg-white text-indigo-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-indigo-50 disabled:opacity-50 flex items-center gap-2"
+          >
+            {bulkSaving ? <Loader2 size={16} className="animate-spin" /> : null}
+            Aplicar
+          </button>
+          <button
+            onClick={() => { setSelectedIds(new Set()); setSelectionMode(false); }}
+            className="px-4 py-2.5 text-white/90 hover:text-white hover:bg-white/10 rounded-xl font-bold text-sm"
+          >
+            Cancelar
+          </button>
         </div>
-        
-        <div className="flex items-center gap-4">
+      )}
+
+      <div className="flex flex-col gap-6">
+        <h1 className="text-4xl font-black text-gray-900 tracking-tighter">Productos</h1>
+        <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2 bg-white rounded-2xl p-2 border border-gray-100">
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-widest px-2">Filtrar por:</span>
             <button
               onClick={() => updateURL({ featured: filterFeatured ? null : 'true' })}
               className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
@@ -405,7 +517,32 @@ const MenuListPage: React.FC = () => {
               Disponibles
             </button>
           </div>
-          <Link to="/create" className="bg-indigo-600 text-white px-8 py-3.5 rounded-2xl font-black hover:bg-indigo-700 shadow-xl flex items-center justify-center gap-3">
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 bg-white rounded-2xl p-1 border border-gray-100">
+            <button
+              onClick={() => setViewMode('cards')}
+              className={`p-2.5 rounded-xl transition-all ${viewMode === 'cards' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
+              title="Vista tarjetas"
+            >
+              <LayoutGrid size={18} />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-2.5 rounded-xl transition-all ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
+              title="Vista lista"
+            >
+              <List size={18} />
+            </button>
+          </div>
+          <button
+            onClick={() => { setSelectionMode(!selectionMode); setSelectedIds(new Set()); }}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 ${selectionMode ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-indigo-50 hover:text-indigo-600'}`}
+          >
+            {selectionMode ? <CheckSquare size={16} /> : <Square size={16} />}
+            Seleccionar
+          </button>
+          <Link to="/create" className="ml-auto bg-indigo-600 text-white px-8 py-3.5 rounded-2xl font-black hover:bg-indigo-700 shadow-xl flex items-center justify-center gap-3">
             <Plus size={20} /> Nuevo Producto
           </Link>
         </div>
@@ -460,67 +597,137 @@ const MenuListPage: React.FC = () => {
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="animate-spin text-indigo-600" size={48} /></div>
       ) : processedItems.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-          {processedItems.map(item => (
-            <div 
-              key={item.id} 
-              onClick={() => navigate(`/edit/${item.id}`)}
-              className="group bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden flex flex-col hover:shadow-2xl transition-all duration-500 relative cursor-pointer"
-            >
-              <div className="relative h-48 overflow-hidden bg-gray-100">
-                {item.image_url && (
-                  <img src={item.image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt={item.name} />
-                )}
-                <div className="absolute top-4 right-4 flex flex-col gap-2">
-                   <button onClick={(e) => toggleFeatured(e, item.id, item.is_featured)} className={`p-2 rounded-xl backdrop-blur-md transition-all ${item.is_featured ? 'bg-amber-400 text-white' : 'bg-white/90 text-gray-400'}`}>
-                    <Star size={16} fill={item.is_featured ? 'white' : 'none'} />
-                  </button>
-                </div>
-              </div>
-              <div className="p-6">
-                <h3 className="text-xl font-black text-gray-900 mb-1">{item.name}</h3>
-                <p className="text-sm font-black text-indigo-600 mb-3">${Number(item.price).toLocaleString('es-CL')}</p>
-                
-                {/* Mostrar etiquetas dietéticas */}
-                {Array.isArray(item.dietary_tags) && item.dietary_tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {item.dietary_tags.slice(0, 3).map((tag, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-600"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                    {item.dietary_tags.length > 3 && (
-                      <span className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest bg-gray-100 text-gray-500">
-                        +{item.dietary_tags.length - 3}
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center pt-4 border-t border-gray-50">
-                  <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Prep: {item.preparation_time_min}m</span>
-                  <div className="flex items-center gap-2">
+        <>
+          {selectionMode && (
+            <div className="flex items-center gap-3 mb-4">
+              <button
+                onClick={toggleSelectAll}
+                className="text-sm font-bold text-indigo-600 hover:text-indigo-700"
+              >
+                {selectedIds.size === processedItems.length ? 'Deseleccionar todos' : 'Seleccionar todos'}
+              </button>
+            </div>
+          )}
+          {viewMode === 'cards' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+              {processedItems.map(item => (
+                <div 
+                  key={item.id} 
+                  onClick={() => !selectionMode && navigate(`/edit/${item.id}`)}
+                  className={`group bg-white rounded-[2.5rem] border shadow-sm overflow-hidden flex flex-col transition-all duration-500 relative ${selectionMode ? 'cursor-default border-2' : 'cursor-pointer border-gray-100 hover:shadow-2xl'} ${selectedIds.has(item.id) ? 'border-indigo-500 ring-2 ring-indigo-200' : ''}`}
+                >
+                  {selectionMode && (
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditTagsModal(item);
-                      }}
-                      className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                      title="Editar etiquetas dietéticas"
+                      onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
+                      className="absolute top-4 left-4 z-10 p-2 rounded-xl bg-white/90 backdrop-blur-md hover:bg-indigo-100 transition-colors"
                     >
-                      <Tag size={14} />
+                      {selectedIds.has(item.id) ? <CheckSquare size={20} className="text-indigo-600" /> : <Square size={20} className="text-gray-400" />}
                     </button>
-                    <Edit2 size={14} className="text-gray-400" />
-                    <button onClick={(e) => { e.stopPropagation(); setItemToDelete(item); }} className="text-gray-400 hover:text-rose-500"><Trash2 size={14} /></button>
+                  )}
+                  <div className="relative h-48 overflow-hidden bg-gray-100">
+                    {item.image_url && (
+                      <img src={item.image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt={item.name} />
+                    )}
+                    <div className="absolute top-4 right-4 flex flex-col gap-2">
+                       <button onClick={(e) => toggleFeatured(e, item.id, item.is_featured)} className={`p-2 rounded-xl backdrop-blur-md transition-all ${item.is_featured ? 'bg-amber-400 text-white' : 'bg-white/90 text-gray-400'}`}>
+                        <Star size={16} fill={item.is_featured ? 'white' : 'none'} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="p-6">
+                    <h3 className="text-xl font-black text-gray-900 mb-1">{item.name}</h3>
+                    <p className="text-sm font-black text-indigo-600 mb-3">${Number(item.price).toLocaleString('es-CL')}</p>
+                    {Array.isArray(item.dietary_tags) && item.dietary_tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-3">
+                        {item.dietary_tags.slice(0, 3).map((tag, idx) => (
+                          <span key={idx} className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-600">{tag}</span>
+                        ))}
+                        {item.dietary_tags.length > 3 && <span className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest bg-gray-100 text-gray-500">+{item.dietary_tags.length - 3}</span>}
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center pt-4 border-t border-gray-50">
+                      <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Prep: {item.preparation_time_min}m</span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={(e) => { e.stopPropagation(); openEditTagsModal(item); }} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Editar etiquetas dietéticas"><Tag size={14} /></button>
+                        {!selectionMode && <Edit2 size={14} className="text-gray-400" />}
+                        <button onClick={(e) => { e.stopPropagation(); setItemToDelete(item); }} className="text-gray-400 hover:text-rose-500"><Trash2 size={14} /></button>
+                      </div>
+                    </div>
                   </div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/50">
+                      {selectionMode && (
+                        <th className="text-left p-4 w-12">
+                          <button onClick={toggleSelectAll} className="p-1">
+                            {selectedIds.size === processedItems.length ? <CheckSquare size={18} className="text-indigo-600" /> : <Square size={18} className="text-gray-400" />}
+                          </button>
+                        </th>
+                      )}
+                      <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Producto</th>
+                      <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Precio</th>
+                      <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Categoría</th>
+                      <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Subcategoría</th>
+                      <th className="text-right p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {processedItems.map(item => (
+                      <tr
+                        key={item.id}
+                        onClick={() => !selectionMode && navigate(`/edit/${item.id}`)}
+                        className={`border-b border-gray-50 hover:bg-gray-50/50 transition-colors ${selectionMode ? 'cursor-default' : 'cursor-pointer'} ${selectedIds.has(item.id) ? 'bg-indigo-50/50' : ''}`}
+                      >
+                        {selectionMode && (
+                          <td className="p-4">
+                            <button onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); }} className="p-1">
+                              {selectedIds.has(item.id) ? <CheckSquare size={18} className="text-indigo-600" /> : <Square size={18} className="text-gray-400" />}
+                            </button>
+                          </td>
+                        )}
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            {item.image_url && (
+                              <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-100 shrink-0">
+                                <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+                              </div>
+                            )}
+                            <div>
+                              <p className="font-bold text-gray-900">{item.name}</p>
+                              {Array.isArray(item.dietary_tags) && item.dietary_tags.length > 0 && (
+                                <div className="flex gap-1 mt-0.5">
+                                  {item.dietary_tags.slice(0, 2).map((t, i) => (
+                                    <span key={i} className="text-[9px] font-black uppercase bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">{t}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-4 font-black text-indigo-600">${Number(item.price).toLocaleString('es-CL')}</td>
+                        <td className="p-4 text-sm text-gray-600">{(item as any).main_category?.name || '—'}</td>
+                        <td className="p-4 text-sm text-gray-600">{(item as any).sub_category?.name || '—'}</td>
+                        <td className="p-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button onClick={(e) => { e.stopPropagation(); toggleFeatured(e, item.id, item.is_featured); }} className={`p-2 rounded-lg ${item.is_featured ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400'}`}><Star size={16} fill={item.is_featured ? 'currentColor' : 'none'} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); openEditTagsModal(item); }} className="p-2 text-gray-400 hover:text-indigo-600 rounded-lg"><Tag size={16} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); setItemToDelete(item); }} className="p-2 text-gray-400 hover:text-rose-500 rounded-lg"><Trash2 size={16} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       ) : (
         <div className="py-20 text-center bg-white rounded-[2.5rem] border border-gray-50">
           <Utensils size={40} className="mx-auto text-gray-200 mb-4" />
