@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => {
     return {
             server: {
               port: 3002,
+              strictPort: true,
               host: '0.0.0.0',
               historyApiFallback: true,
             },
