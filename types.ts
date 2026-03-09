@@ -110,6 +110,10 @@ export interface MenuItem {
   is_featured: boolean;
   is_new: boolean;
   is_available: boolean;
+  /** Control manual de disponibilidad (toggle). Si stock_quantity tiene valor, al llegar a 0 se pone FALSE. */
+  availability?: boolean;
+  /** Stock disponible. NULL = no se considera, solo availability. Si tiene valor, cada venta resta 1 y al llegar a 0 se pone availability=FALSE. */
+  stock_quantity?: number | null;
   preparation_time_min: number;
   average_rating?: number;
   created_at: Date;

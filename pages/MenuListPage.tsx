@@ -163,6 +163,23 @@ const MenuListPage: React.FC = () => {
     }
   };
 
+  const getAvailability = (item: MenuItem) => item.availability ?? item.is_available ?? true;
+
+  const toggleAvailability = async (e: React.MouseEvent, id: string, currentAvailability: boolean) => {
+    e.stopPropagation();
+    const newVal = !currentAvailability;
+    const { error } = await supabase
+      .from('menu_items')
+      .update({ availability: newVal, is_available: newVal })
+      .eq('id', id);
+    
+    if (!error) {
+      setItems(prev => prev.map(item => 
+        item.id === id ? { ...item, availability: newVal, is_available: newVal } : item
+      ));
+    }
+  };
+
   const confirmDelete = async () => {
     if (itemToDelete) {
       const { error } = await supabase
@@ -813,9 +830,23 @@ const MenuListPage: React.FC = () => {
                         {item.dietary_tags.length > 3 && <span className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest bg-gray-100 text-gray-500">+{item.dietary_tags.length - 3}</span>}
                       </div>
                     )}
-                    <div className="flex justify-between items-center pt-4 border-t border-gray-50">
-                      <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Prep: {item.preparation_time_min}m</span>
-                      <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-3 pt-4 border-t border-gray-50">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleAvailability(e, item.id, getAvailability(item)); }}
+                            className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 transition-colors ${getAvailability(item) ? 'bg-emerald-500 border-emerald-500' : 'bg-rose-500 border-rose-500'}`}
+                            title={getAvailability(item) ? 'Disponible (clic para desactivar)' : 'No disponible (clic para activar)'}
+                          >
+                            <span className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition-transform ${getAvailability(item) ? 'translate-x-5' : 'translate-x-1'}`} />
+                          </button>
+                          <span className="text-[10px] font-black uppercase text-gray-500 tracking-widest">
+                            {item.stock_quantity != null ? `Stock: ${item.stock_quantity}` : 'Sin stock'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Prep: {item.preparation_time_min}m</span>
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
                         <button onClick={(e) => { e.stopPropagation(); openEditTagsModal(item); }} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Editar etiquetas dietéticas"><Tag size={14} /></button>
                         {!selectionMode && <Edit2 size={14} className="text-gray-400" />}
                         <button onClick={(e) => { e.stopPropagation(); setItemToDelete(item); }} className="text-gray-400 hover:text-rose-500"><Trash2 size={14} /></button>
@@ -843,6 +874,8 @@ const MenuListPage: React.FC = () => {
                       )}
                       <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Producto</th>
                       <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Precio</th>
+                      <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Disponible</th>
+                      <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Stock</th>
                       <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Categoría</th>
                       <th className="text-left p-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">Subcategoría</th>
                       {canAddSections && (
@@ -856,7 +889,7 @@ const MenuListPage: React.FC = () => {
                       <React.Fragment key={gi}>
                         {group.sectionTitle && (
                           <tr className="bg-indigo-50/50 border-b border-indigo-100">
-                            <td colSpan={5 + (selectionMode ? 1 : 0) + (canAddSections ? 1 : 0)} className="p-3 pl-4">
+                            <td colSpan={7 + (selectionMode ? 1 : 0) + (canAddSections ? 1 : 0)} className="p-3 pl-4">
                               <span className="text-sm font-black text-indigo-700 flex items-center gap-2">
                                 <Heading size={16} /> {group.sectionTitle}
                               </span>
@@ -896,6 +929,18 @@ const MenuListPage: React.FC = () => {
                           </div>
                         </td>
                         <td className="p-4 font-black text-indigo-600">${Number(item.price).toLocaleString('es-CL')}</td>
+                        <td className="p-4">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleAvailability(e, item.id, getAvailability(item)); }}
+                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 transition-colors ${getAvailability(item) ? 'bg-emerald-500 border-emerald-500' : 'bg-rose-500 border-rose-500'}`}
+                            title={getAvailability(item) ? 'Disponible (clic para desactivar)' : 'No disponible (clic para activar)'}
+                          >
+                            <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform ${getAvailability(item) ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                          </button>
+                        </td>
+                        <td className="p-4 text-sm font-bold text-gray-700">
+                          {item.stock_quantity != null ? item.stock_quantity : '—'}
+                        </td>
                         <td className="p-4 text-sm text-gray-600">{(item as any).main_category?.name || '—'}</td>
                         <td className="p-4 text-sm text-gray-600">{(item as any).sub_category?.name || '—'}</td>
                         {canAddSections && (

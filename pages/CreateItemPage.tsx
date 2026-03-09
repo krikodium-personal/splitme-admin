@@ -79,6 +79,8 @@ const CreateItemPage: React.FC = () => {
     is_featured: false,
     is_new: false,
     is_available: true,
+    availability: true,
+    stock_quantity: null as number | null,
     preparation_time_min: 15,
     average_rating: 0
   });
@@ -209,6 +211,8 @@ const CreateItemPage: React.FC = () => {
           is_featured: data.is_featured,
           is_new: data.is_new || false,
           is_available: data.is_available,
+          availability: data.availability ?? data.is_available ?? true,
+          stock_quantity: data.stock_quantity != null ? Number(data.stock_quantity) : null,
           preparation_time_min: data.preparation_time_min,
           average_rating: data.average_rating || 0
         });
@@ -426,6 +430,8 @@ const CreateItemPage: React.FC = () => {
         is_featured: formData.is_featured,
         is_new: formData.is_new,
         is_available: formData.is_available,
+        availability: (formData as any).availability ?? formData.is_available,
+        stock_quantity: (formData as any).stock_quantity != null && (formData as any).stock_quantity !== '' ? Number((formData as any).stock_quantity) : null,
         preparation_time_min: Number(formData.preparation_time_min),
         dietary_tags: Array.isArray(formData.dietary_tags) ? formData.dietary_tags : [],
         customer_customization: {
@@ -591,6 +597,52 @@ const CreateItemPage: React.FC = () => {
           {isEditing ? 'Actualizar' : 'Crear Plato'}
         </button>
       </div>
+
+      <section className="bg-white rounded-[2.5rem] p-10 border border-gray-100 shadow-sm space-y-6">
+        <h3 className="font-black text-[10px] uppercase tracking-widest text-gray-400">Parámetros de Publicación</h3>
+        <div className="space-y-4">
+          <label className="flex items-center justify-between cursor-pointer group p-3 rounded-2xl hover:bg-gray-50 transition-all">
+            <span className="text-sm font-bold text-gray-700">Destacado</span>
+            <input type="checkbox" name="is_featured" checked={formData.is_featured} onChange={handleInputChange} className="w-6 h-6 rounded-lg border-2 border-gray-200 text-indigo-600 transition-all" />
+          </label>
+          <label className="flex items-center justify-between cursor-pointer group p-3 rounded-2xl hover:bg-gray-50 transition-all">
+            <span className="text-sm font-bold text-gray-700">Nuevo</span>
+            <input type="checkbox" name="is_new" checked={formData.is_new} onChange={handleInputChange} className="w-6 h-6 rounded-lg border-2 border-gray-200 text-indigo-600 transition-all" />
+          </label>
+          <label className="flex items-center justify-between cursor-pointer group p-3 rounded-2xl hover:bg-gray-50 transition-all">
+            <span className="text-sm font-bold text-gray-700">Disponible</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={(formData as any).availability ?? formData.is_available}
+              onClick={() => {
+                const v = !((formData as any).availability ?? formData.is_available);
+                setFormData(prev => ({ ...prev, availability: v, is_available: v } as any));
+              }}
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 transition-colors ${(formData as any).availability ?? formData.is_available ? 'bg-emerald-500 border-emerald-500' : 'bg-rose-500 border-rose-500'}`}
+            >
+              <span className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition-transform ${(formData as any).availability ?? formData.is_available ? 'translate-x-5' : 'translate-x-1'}`} />
+            </button>
+          </label>
+          <div className="flex items-center justify-between gap-4 p-3 rounded-2xl hover:bg-gray-50 transition-all">
+            <div>
+              <span className="text-sm font-bold text-gray-700 block">Cantidad en stock</span>
+              <span className="text-xs text-gray-500">Vacío = sin control de stock. Si tiene valor, se resta 1 por venta y al llegar a 0 se pone no disponible.</span>
+            </div>
+            <input
+              type="number"
+              min="0"
+              placeholder="—"
+              value={(formData as any).stock_quantity ?? ''}
+              onChange={(e) => {
+                const v = e.target.value === '' ? null : parseInt(e.target.value, 10);
+                setFormData(prev => ({ ...prev, stock_quantity: v } as any));
+              }}
+              className="w-24 px-3 py-2 text-sm font-bold border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+        </div>
+      </section>
 
       {success && (
         <div className="bg-emerald-50 border-2 border-emerald-100 p-6 rounded-[2rem] flex items-center gap-4 animate-in fade-in slide-in-from-top-4 shadow-lg">
@@ -971,24 +1023,6 @@ const CreateItemPage: React.FC = () => {
                 <button type="button" onClick={addCustomTag} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all active:scale-90 shadow-sm">
                   <Plus size={18} />
                 </button>
-              </div>
-           </section>
-
-           <section className="bg-white rounded-[2.5rem] p-10 border border-gray-100 shadow-sm space-y-6">
-              <h3 className="font-black text-[10px] uppercase tracking-widest text-gray-400">Parámetros de Publicación</h3>
-              <div className="space-y-4">
-                <label className="flex items-center justify-between cursor-pointer group p-3 rounded-2xl hover:bg-gray-50 transition-all">
-                  <span className="text-sm font-bold text-gray-700">Destacado</span>
-                  <input type="checkbox" name="is_featured" checked={formData.is_featured} onChange={handleInputChange} className="w-6 h-6 rounded-lg border-2 border-gray-200 text-indigo-600 transition-all" />
-                </label>
-                <label className="flex items-center justify-between cursor-pointer group p-3 rounded-2xl hover:bg-gray-50 transition-all">
-                  <span className="text-sm font-bold text-gray-700">Nuevo</span>
-                  <input type="checkbox" name="is_new" checked={formData.is_new} onChange={handleInputChange} className="w-6 h-6 rounded-lg border-2 border-gray-200 text-indigo-600 transition-all" />
-                </label>
-                <label className="flex items-center justify-between cursor-pointer group p-3 rounded-2xl hover:bg-gray-50 transition-all">
-                  <span className="text-sm font-bold text-gray-700">Stock Disponible</span>
-                  <input type="checkbox" name="is_available" checked={formData.is_available} onChange={handleInputChange} className="w-6 h-6 rounded-lg border-2 border-gray-200 text-indigo-600 transition-all" />
-                </label>
               </div>
            </section>
         </div>
