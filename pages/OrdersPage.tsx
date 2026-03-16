@@ -4,7 +4,7 @@ import {
   ShoppingBag, Clock, CheckCircle2, Utensils, Hash, 
   MessageSquare, Play, Check, CircleDollarSign, 
   Timer, AlertCircle, Loader2, ChevronDown, ChevronUp, BellRing, X,
-  Maximize2, Minimize2, Archive, CheckCircle, Copy
+  Maximize2, Minimize2, Archive, CheckCircle, Copy, Trash2
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../supabase';
@@ -14,10 +14,13 @@ const BatchCard: React.FC<{
   batch: any, 
   batchIndex: number,
   onUpdateBatchStatus: (batchId: string, newStatus: string) => void,
+  onRemoveOrderItem?: (orderItemId: string) => Promise<void>,
   isArchived?: boolean,
   orderGuests?: any[]
-}> = ({ batch, batchIndex, onUpdateBatchStatus, isArchived = false, orderGuests = [] }) => {
+}> = ({ batch, batchIndex, onUpdateBatchStatus, onRemoveOrderItem, isArchived = false, orderGuests = [] }) => {
   const [isExpanded, setIsExpanded] = useState(batch.status !== 'SERVIDO');
+  const [confirmRemoveItemId, setConfirmRemoveItemId] = useState<string | null>(null);
+  const [removingItemId, setRemovingItemId] = useState<string | null>(null);
 
   // Colapsar automáticamente cuando el batch se marca como SERVIDO
   useEffect(() => {
@@ -180,21 +183,36 @@ const BatchCard: React.FC<{
                     )}
                   </div>
                 </div>
-                <div className="text-right ml-3">
-                  {item.quantity === 1 ? (
-                    <span className="text-sm font-black text-indigo-600">
-                      ${Number(unitPrice).toLocaleString('es-CL')}
-                    </span>
-                  ) : (
-                    <div className="text-right">
-                      <span className="text-xs font-bold text-slate-400 line-through">
+                <div className="flex items-center gap-2 ml-3">
+                  {batch.status === 'ENVIADO' && !isArchived && onRemoveOrderItem && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmRemoveItemId(item.id);
+                      }}
+                      className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+                      title="Quitar del pedido"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                  <div className="text-right">
+                    {item.quantity === 1 ? (
+                      <span className="text-sm font-black text-indigo-600">
                         ${Number(unitPrice).toLocaleString('es-CL')}
                       </span>
-                      <div className="text-sm font-black text-indigo-600">
-                        ${Number(subtotal).toLocaleString('es-CL')}
+                    ) : (
+                      <div className="text-right">
+                        <span className="text-xs font-bold text-slate-400 line-through">
+                          ${Number(unitPrice).toLocaleString('es-CL')}
+                        </span>
+                        <div className="text-sm font-black text-indigo-600">
+                          ${Number(subtotal).toLocaleString('es-CL')}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -219,6 +237,57 @@ const BatchCard: React.FC<{
           )}
         </div>
       </div>
+
+      {/* Modal de confirmación para quitar producto */}
+      {confirmRemoveItemId && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => !removingItemId && setConfirmRemoveItemId(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6"
+            onClick={e => e.stopPropagation()}
+          >
+            <p className="text-base font-bold text-slate-800 mb-6">
+              ¿Estás seguro de quitar el producto del pedido?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setConfirmRemoveItemId(null)}
+                disabled={!!removingItemId}
+                className="px-4 py-2 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirmRemoveItemId || !onRemoveOrderItem) return;
+                  setRemovingItemId(confirmRemoveItemId);
+                  try {
+                    await onRemoveOrderItem(confirmRemoveItemId);
+                    setConfirmRemoveItemId(null);
+                  } finally {
+                    setRemovingItemId(null);
+                  }
+                }}
+                disabled={!!removingItemId}
+                className="px-4 py-2 rounded-xl font-bold text-sm bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {removingItemId ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Quitando...
+                  </>
+                ) : (
+                  'Sí, quitar'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -227,11 +296,12 @@ const OrderGroupCard: React.FC<{
   order: any, 
   onCloseMesa: (order: any) => Promise<void>,
   onUpdateBatchStatus: (batchId: string, newStatus: string) => void,
+  onRemoveOrderItem?: (orderItemId: string) => Promise<void>,
   onMarkGuestAsPaid: (guestId: string) => void,
   markingGuestAsPaid: string | null,
   forceExpanded?: boolean,
   isClosed?: boolean
-}> = ({ order, onCloseMesa, onUpdateBatchStatus, onMarkGuestAsPaid, markingGuestAsPaid, forceExpanded = false, isClosed: propIsClosed = false }) => {
+}> = ({ order, onCloseMesa, onUpdateBatchStatus, onRemoveOrderItem, onMarkGuestAsPaid, markingGuestAsPaid, forceExpanded = false, isClosed: propIsClosed = false }) => {
   // Inicializamos colapsado por defecto, a menos que se fuerce la expansión
   const [isCollapsed, setIsCollapsed] = useState(!forceExpanded);
   const [copiedPaymentId, setCopiedPaymentId] = useState<string | null>(null);
@@ -239,12 +309,8 @@ const OrderGroupCard: React.FC<{
   // Solo incluir lo que el comensal ya envió a cocina (ENVIADO, PREPARANDO, LISTO, SERVIDO)
   const batches = (order.order_batches || []).filter((batch: any) => batch.status !== 'CREADO');
 
-  // Total acumulado: solo items YA ordenados (excluye "por enviar"). Evita cobrar lo no encargado.
-  const calculatedTotal = batches.reduce((sum: number, batch: any) => {
-    return sum + (batch.order_items || []).reduce((s: number, item: any) => {
-      return s + (Number(item.unit_price) || 0) * (Number(item.quantity) || 1);
-    }, 0);
-  }, 0);
+  // Total de la cuenta: desde columna total_amount de orders (calculado por trigger en BD, excluye batches CREADO)
+  const orderTotal = Number(order.total_amount) || 0;
 
   // Para la lógica de estado, usar todos los batches (incluyendo CREADO)
   const allBatches = order.order_batches || [];
@@ -277,8 +343,7 @@ const OrderGroupCard: React.FC<{
     ? totalPaidFromPayments
     : orderGuests.filter((g: any) => g.paid === true).reduce((sum: number, g: any) => sum + (Number(g.individual_amount) || 0), 0);
 
-  // Usar total calculado desde items para consistencia con lo mostrado
-  const totalAmount = calculatedTotal > 0 ? calculatedTotal : (Number(order.total_amount) || 0);
+  const totalAmount = orderTotal;
   // Tolerancia para redondeos: al menos 1 unidad o 0.5% del total (útil en CLP y otros)
   const amountTolerance = Math.max(1, totalAmount * 0.005);
   const isTotalAmountPaid = totalAmount > 0 && Math.abs(totalPaidAmount - totalAmount) <= amountTolerance;
@@ -350,7 +415,7 @@ const OrderGroupCard: React.FC<{
                 <h3 className="text-lg font-black text-slate-900 tracking-tight leading-none">Mesa {order.tables?.table_number}</h3>
                 {isCollapsed && (
                    <span className="px-3 py-0.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black tracking-tighter shadow-sm animate-in zoom-in-95">
-                    ${calculatedTotal.toLocaleString('es-CL')}
+                    ${orderTotal.toLocaleString('es-CL')}
                   </span>
                 )}
               </div>
@@ -416,6 +481,7 @@ const OrderGroupCard: React.FC<{
                 batch={batch} 
                 batchIndex={idx} 
                 onUpdateBatchStatus={onUpdateBatchStatus}
+                onRemoveOrderItem={onRemoveOrderItem}
                 isArchived={propIsClosed}
                 orderGuests={order.order_guests}
               />
@@ -432,7 +498,11 @@ const OrderGroupCard: React.FC<{
           <div className="flex justify-between items-center mb-4">
             <div>
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Total Acumulado</p>
-              <p className="text-2xl font-black text-indigo-600 tracking-tighter">${calculatedTotal.toLocaleString('es-CL')}</p>
+              <p className="text-2xl font-black text-indigo-600 tracking-tighter">${orderTotal.toLocaleString('es-CL')}</p>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5 mt-2">Diferencia a saldar</p>
+              <p className={`text-xl font-black tracking-tighter ${(orderTotal - totalPaidAmount) > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                ${Math.max(0, orderTotal - totalPaidAmount).toLocaleString('es-CL')}
+              </p>
             </div>
             <div className="px-4 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-indigo-100">
               {batches.length} {batches.length === 1 ? 'Envío' : 'Envíos'}
@@ -515,7 +585,7 @@ const OrderGroupCard: React.FC<{
                       </div>
                       <div className="flex items-center gap-3 ml-4">
                         <div className="text-right">
-                          <p className="text-lg font-black text-indigo-600 flex items-center justify-end gap-2 flex-wrap">
+                          <p className={`text-lg font-black flex items-center justify-end gap-2 flex-wrap ${isPaid ? 'text-indigo-600' : 'text-red-600'}`}>
                             ${Number(guestTotal).toLocaleString('es-CL')}
                             {isPaid && <span className="text-emerald-600 font-black text-[9px] uppercase tracking-widest">PAGADO</span>}
                           </p>
@@ -947,6 +1017,26 @@ const OrdersPage: React.FC = () => {
     } catch (err: any) {
       console.error('Error completo al actualizar batch:', err);
       alert("Error al actualizar el estado del batch: " + (err.message || 'Error desconocido'));
+    }
+  };
+
+  const handleRemoveOrderItem = async (orderItemId: string) => {
+    if (!orderItemId) return;
+    try {
+      const { error } = await supabase
+        .from('order_items')
+        .delete()
+        .eq('id', orderItemId);
+
+      if (error) {
+        console.error('Error al quitar item:', error);
+        alert('Error al quitar el producto del pedido: ' + error.message);
+        return;
+      }
+      await fetchActiveOrders();
+    } catch (err: any) {
+      console.error('Error al quitar item:', err);
+      alert('Error al quitar el producto del pedido: ' + (err.message || 'Error desconocido'));
     }
   };
 
@@ -1485,6 +1575,7 @@ const OrdersPage: React.FC = () => {
               order={order} 
               onCloseMesa={handleCloseMesa}
               onUpdateBatchStatus={handleUpdateBatchStatus}
+              onRemoveOrderItem={showClosedOrders ? undefined : handleRemoveOrderItem}
               onMarkGuestAsPaid={handleMarkGuestAsPaid}
               markingGuestAsPaid={markingGuestAsPaid}
               forceExpanded={order.id === expandedOrderId}
