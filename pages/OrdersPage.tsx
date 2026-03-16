@@ -414,9 +414,16 @@ const OrderGroupCard: React.FC<{
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-black text-slate-900 tracking-tight leading-none">Mesa {order.tables?.table_number}</h3>
                 {isCollapsed && (
-                   <span className="px-3 py-0.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black tracking-tighter shadow-sm animate-in zoom-in-95">
-                    ${orderTotal.toLocaleString('es-CL')}
-                  </span>
+                  <>
+                    <span className="px-3 py-0.5 bg-indigo-600 text-white rounded-lg text-xs font-medium tracking-tighter shadow-sm animate-in zoom-in-95">
+                      ${orderTotal.toLocaleString('es-CL')}
+                    </span>
+                    {!propIsClosed && !isMesaCerrada && (
+                      <span className="px-3 py-0.5 bg-red-600 text-white rounded-full text-xs font-medium tracking-tighter shadow-sm animate-in zoom-in-95">
+                        ${Math.max(0, orderTotal - totalPaidAmount).toLocaleString('es-CL')} a saldar
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
               <div className="flex items-center gap-2 mt-1.5 text-[9px] font-black uppercase text-slate-400 tracking-widest">
