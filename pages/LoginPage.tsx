@@ -2,11 +2,12 @@
 import React, { useState } from 'react';
 import { supabase } from '../supabase';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Mail, Loader2, AlertCircle, ShieldCheck, User, Zap } from 'lucide-react';
+import { Lock, Mail, Loader2, AlertCircle, ShieldCheck, User, Zap, Eye, EyeOff } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -16,8 +17,8 @@ const LoginPage: React.FC = () => {
       setEmail('krikodium@gmail.com');
       setPassword('kriko1');
     } else {
-      setEmail('suscripcionkriko@gmail.com');
-      setPassword('kriko2');
+      setEmail('joaco@email.com');
+      setPassword('123123');
     }
   };
 
@@ -115,13 +116,21 @@ const LoginPage: React.FC = () => {
               <div className="relative">
                 <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
                 <input 
-                  type="password" 
+                  type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-white focus:ring-2 focus:ring-indigo-500 focus:bg-white/10 outline-none transition-all font-medium"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-12 text-white focus:ring-2 focus:ring-indigo-500 focus:bg-white/10 outline-none transition-all font-medium"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-colors"
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
@@ -169,7 +178,7 @@ const LoginPage: React.FC = () => {
         </div>
         
         <p className="text-center text-gray-700 text-[10px] font-black mt-10 uppercase tracking-widest">
-          © 2024 Splitme Platform
+          © 2026 Splitme Platform
         </p>
       </div>
     </div>
