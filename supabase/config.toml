@@ -1,0 +1,8 @@
+# Configuración de Edge Functions
+# Las funciones validan el JWT manualmente en el código (solo super_admin)
+
+[functions.get-admin-user]
+verify_jwt = false
+
+[functions.update-admin-user]
+verify_jwt = false

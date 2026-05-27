@@ -29,7 +29,11 @@ export interface PaymentConfig {
   restaurant_id: string;
   token_cbu: string | null; // Para MP: access token, Para Transferencia: CBU
   key_alias: string | null; // Para MP: public key, Para Transferencia: alias
-  user_account: string | null; // Para MP: user ID (opcional), Para Transferencia: "Banco|NroCuenta"
+  user_account: string | null; // Para MP: user ID, Para Transferencia: "Banco|NroCuenta"
+  refresh_token?: string | null; // MP OAuth; no exponer en UI
+  oauth_connected_at?: string | null;
+  token_expires_at?: string | null;
+  webhook_secret?: string | null; // Reservado; webhook de plataforma usa env MERCADOPAGO_WEBHOOK_SECRET
   provider: string;
   is_active: boolean;
   created_at: string;

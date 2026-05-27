@@ -59,7 +59,11 @@ const DashboardPage: React.FC = () => {
 
   const fetchStats = async () => {
     const restaurantId = CURRENT_RESTAURANT?.id;
-    if (!restaurantId) return;
+    if (!restaurantId) {
+      setLoading(false);
+      setStats(prev => ({ ...prev, dishes: 0, orders: 0, sales: 0, historicalSales: 0 }));
+      return;
+    }
 
     setLoading(true);
     try {
@@ -195,7 +199,11 @@ const DashboardPage: React.FC = () => {
 
   const fetchPopularDishes = async () => {
     const restaurantId = CURRENT_RESTAURANT?.id;
-    if (!restaurantId) return;
+    if (!restaurantId) {
+      setPopularDishes([]);
+      setPopularDishesLoading(false);
+      return;
+    }
 
     setPopularDishesLoading(true);
     try {
@@ -338,7 +346,11 @@ const DashboardPage: React.FC = () => {
 
   const fetchAverageServiceTime = async () => {
     const restaurantId = CURRENT_RESTAURANT?.id;
-    if (!restaurantId) return;
+    if (!restaurantId) {
+      setServiceTimeLoading(false);
+      setAverageServiceTime(null);
+      return;
+    }
 
     setServiceTimeLoading(true);
     try {
