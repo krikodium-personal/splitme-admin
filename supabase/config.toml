@@ -6,3 +6,10 @@ verify_jwt = false
 
 [functions.update-admin-user]
 verify_jwt = false
+
+# OAuth: MP redirige el browser sin Authorization header
+[functions.mercadopago-oauth-callback]
+verify_jwt = false
+
+[functions.mercadopago-oauth-start]
+verify_jwt = false

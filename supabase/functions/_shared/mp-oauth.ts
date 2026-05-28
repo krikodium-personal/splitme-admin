@@ -81,13 +81,12 @@ export function getMpConfig() {
   const clientSecret = Deno.env.get("MERCADOPAGO_CLIENT_SECRET")?.trim();
   const redirectUri = Deno.env.get("MERCADOPAGO_OAUTH_REDIRECT_URI")?.trim();
   const stateSecret = Deno.env.get("MERCADOPAGO_OAUTH_STATE_SECRET")?.trim();
-  const testMode = Deno.env.get("MERCADOPAGO_OAUTH_TEST_MODE") === "true";
 
   if (!clientId || !clientSecret || !redirectUri || !stateSecret) {
     throw new Error("OAuth de Mercado Pago no configurado en el servidor");
   }
 
-  return { clientId, clientSecret, redirectUri, stateSecret, testMode };
+  return { clientId, clientSecret, redirectUri, stateSecret };
 }
 
 export async function exchangeMpOAuthCode(
@@ -110,6 +109,8 @@ export async function exchangeMpOAuthCode(
     code,
     redirect_uri: redirectUri,
   };
+  // Default: production OAuth token (APP_USR) for the seller authorizing SplitMe's app.
+  // test_token=true returns sandbox TEST credentials that break Checkout Pro card tokenization.
   if (testToken) body.test_token = "true";
 
   const response = await fetch("https://api.mercadopago.com/oauth/token", {

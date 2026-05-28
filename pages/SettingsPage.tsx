@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   Store, AlertCircle, Loader2, Camera, UploadCloud, 
   Save, MapPin, CheckCircle2, CreditCard, Link as LinkIcon, RefreshCw, Zap,
-  Key, ShieldCheck, ExternalLink, Eye, EyeOff, User, Trash2
+  Key, ShieldCheck, ExternalLink, User, Trash2
 } from 'lucide-react';
 import { Restaurant, setGlobalRestaurant, PaymentConfig } from '../types';
 import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from '../supabase';
@@ -79,13 +79,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
 
   // Estados para Mercado Pago
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
-  const [manualPublicKey, setManualPublicKey] = useState('');
-  const [manualAccessToken, setManualAccessToken] = useState('');
-  const [manualMpUserId, setManualMpUserId] = useState('');
-  const [showAccessToken, setShowAccessToken] = useState(false);
-  const [showManualMp, setShowManualMp] = useState(false);
   const [connectingMp, setConnectingMp] = useState(false);
-  const [mpTestMode, setMpTestMode] = useState(true);
+  const [mpTestMode, setMpTestMode] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -128,25 +123,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       // Cargar configuración de Mercado Pago
       const { data: mpData, error: mpError } = await supabase
         .from('payment_configs')
-        .select('id, restaurant_id, token_cbu, key_alias, user_account, oauth_connected_at, token_expires_at, provider, is_active, created_at')
+        .select('id, restaurant_id, key_alias, user_account, oauth_connected_at, token_expires_at, provider, is_active, created_at')
         .eq('restaurant_id', restaurant.id)
         .eq('provider', 'mercadopago')
         .maybeSingle();
       
       if (mpError) throw mpError;
-      if (mpData) {
-        setPaymentConfig(mpData);
-        setManualPublicKey(mpData.key_alias || '');
-        setManualAccessToken('');
-        setManualMpUserId(mpData.user_account || '');
-        setShowManualMp(!mpData.oauth_connected_at);
-      } else {
-        setPaymentConfig(null);
-        setManualPublicKey('');
-        setManualAccessToken('');
-        setManualMpUserId('');
-        setShowManualMp(false);
-      }
+      setPaymentConfig(mpData ?? null);
 
       // Cargar configuración de Transferencia (buscar por cualquier banco de la lista)
       const { data: transferData, error: transferError } = await supabase
@@ -166,93 +149,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       }
     } catch (err: any) {
       console.error("Error al cargar config de pagos:", err.message || err);
-    }
-  };
-
-  const handleSaveManualConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!restaurant?.id) return;
-    if (!manualPublicKey.trim() || !manualAccessToken.trim()) {
-      setPaymentMessage({ type: 'error', text: 'Completá Public Key y Access Token del vendedor de este local.' });
-      return;
-    }
-    if (!manualMpUserId.trim()) {
-      setPaymentMessage({ type: 'error', text: 'Completá el MP User ID del vendedor de este local.' });
-      return;
-    }
-
-    setSavingPayment(true);
-    setPaymentMessage(null);
-
-    try {
-      const payload = {
-        restaurant_id: restaurant.id,
-        token_cbu: manualAccessToken.trim(),
-        key_alias: manualPublicKey.trim(),
-        user_account: manualMpUserId.trim() || null,
-        refresh_token: null,
-        oauth_connected_at: null,
-        token_expires_at: null,
-        provider: 'mercadopago',
-        is_active: true
-      };
-
-      if (paymentConfig?.id) {
-        const { data, error } = await supabase
-          .from('payment_configs')
-          .update(payload)
-          .eq('id', paymentConfig.id)
-          .select()
-          .single();
-
-        if (error) throw error;
-        setPaymentConfig(data);
-        setPaymentMessage({ type: 'success', text: 'Credenciales actualizadas correctamente.' });
-      } else {
-        const { data: existingMP } = await supabase
-          .from('payment_configs')
-          .select('id, provider')
-          .eq('restaurant_id', restaurant.id)
-          .eq('provider', 'mercadopago')
-          .maybeSingle();
-
-        if (existingMP) {
-          setPaymentMessage({ 
-            type: 'error', 
-            text: 'Ya existe una configuración de Mercado Pago. Recarga la página e intenta de nuevo.' 
-          });
-          setSavingPayment(false);
-          return;
-        }
-
-        const { data, error } = await supabase
-          .from('payment_configs')
-          .insert(payload)
-          .select()
-          .single();
-
-        if (error) throw error;
-        setPaymentConfig(data);
-        setPaymentMessage({ type: 'success', text: 'Configuración vinculada correctamente.' });
-      }
-
-      setErrorMsg(null);
-      fetchPaymentConfig();
-    } catch (err: any) {
-      console.error("DEBUG Catch al guardar pagos:", err);
-      if (err.message?.toLowerCase().includes('schema cache')) {
-        setPaymentMessage({ 
-          type: 'error', 
-          text: 'La estructura de la base de datos ha cambiado. Recargá la página (F5) e intentá de nuevo.' 
-        });
-      } else {
-        setPaymentMessage({ 
-          type: 'error', 
-          text: `Error al guardar: ${err.message || 'No se pudo guardar la configuración.'}` 
-        });
-      }
-    } finally {
-      setSavingPayment(false);
     }
   };
 
@@ -319,10 +215,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       
       if (error) throw error;
       setPaymentConfig(null);
-      setManualPublicKey('');
-      setManualAccessToken('');
-      setManualMpUserId('');
-      setPaymentMessage({ type: 'success', text: 'Credenciales eliminadas con éxito.' });
+      setPaymentMessage({ type: 'success', text: 'Cuenta de Mercado Pago desconectada.' });
     } catch (err: any) {
       alert("Error al desvincular: " + (err.message || "Error desconocido"));
     } finally {
@@ -623,7 +516,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
            </form>
         </div>
       ) : (
-        /* Pestaña de Pasarela de Pagos: Mercado Pago Manual Configuration */
+        /* Pestaña de Pasarela de Pagos: Mercado Pago OAuth */
         <div className="bg-white rounded-[3rem] border border-gray-100 shadow-xl overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
            <div className="bg-[#009EE3] px-12 py-10 border-b border-white/10 flex items-center justify-between text-white relative overflow-hidden">
               <div className="relative z-10">
@@ -672,9 +565,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                           Conectado el {new Date(paymentConfig.oauth_connected_at).toLocaleString('es-AR')}
                         </p>
                       </div>
-                    ) : paymentConfig?.token_cbu ? (
+                    ) : paymentConfig && !paymentConfig.oauth_connected_at ? (
                       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
-                        Hay credenciales cargadas manualmente. Recomendamos reconectar con OAuth para renovación automática.
+                        Hay una configuración anterior. Reconectá con Mercado Pago para actualizar las credenciales.
                       </div>
                     ) : null}
 
@@ -685,7 +578,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         onChange={(e) => setMpTestMode(e.target.checked)}
                         className="rounded border-gray-300 text-[#009EE3] focus:ring-[#009EE3]"
                       />
-                      Modo prueba (usuarios vendedor de prueba en MP Developers)
+                      Credenciales sandbox OAuth (TEST) — no recomendado; usá cuenta vendedor de prueba sin activar esto
                     </label>
 
                     <div className="flex flex-wrap items-center gap-4">
@@ -721,107 +614,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                     )}
                   </div>
 
-                  <div className="bg-gray-50/50 rounded-[2.5rem] border border-gray-100 overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => setShowManualMp(!showManualMp)}
-                      className="w-full px-10 py-5 flex items-center justify-between text-left hover:bg-gray-100/60 transition-colors"
-                    >
-                      <span className="text-[10px] font-black uppercase text-gray-500 tracking-widest">
-                        Configuración manual (avanzado / sandbox)
-                      </span>
-                      <span className="text-xs font-bold text-[#009EE3]">{showManualMp ? 'Ocultar' : 'Mostrar'}</span>
-                    </button>
-
-                    {showManualMp && (
-                  <form onSubmit={handleSaveManualConfig} className="space-y-8 px-10 pb-10 pt-2 border-t border-gray-100">
-                    <div className="flex items-center gap-3 mb-2">
-                      <ShieldCheck className="text-[#009EE3]" size={20} />
-                      <h3 className="text-lg font-black text-gray-900 tracking-tight">Cuenta vendedora de este local</h3>
-                    </div>
-
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 leading-relaxed">
-                      <p className="font-bold mb-1">Importante</p>
-                      <p>
-                        No uses las &quot;Credenciales de prueba&quot; genéricas de la aplicación SplitMe en Mercado Pago Developers.
-                        Cada restaurante debe cargar el <strong>Public Key</strong> y <strong>Access Token</strong> de{' '}
-                        <strong>su propia cuenta vendedora</strong>. El dinero se acredita en esa cuenta, no en SplitMe.
-                      </p>
-                    </div>
-
-                    <div className="space-y-6">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">MP User ID del vendedor *</label>
-                        <p className="text-[11px] text-gray-500 font-medium ml-1">
-                          ID numérico del vendedor en Mercado Pago (Cuentas de prueba → tu vendedor, o tu cuenta real en producción).
-                        </p>
-                        <div className="relative">
-                           <User size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
-                           <input 
-                             required
-                             value={manualMpUserId} 
-                             onChange={e => setManualMpUserId(e.target.value.replace(/\D/g, ''))}
-                             placeholder="Ej: 3110331459"
-                             className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
-                           />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Public Key del vendedor *</label>
-                        <p className="text-[11px] text-gray-500 font-medium ml-1">
-                          Clave pública del mismo vendedor que el Access Token (TEST-... en sandbox, APP_USR-... en producción).
-                        </p>
-                        <div className="relative">
-                           <Key size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
-                           <input 
-                             required 
-                             value={manualPublicKey} 
-                             onChange={e => setManualPublicKey(e.target.value)}
-                             placeholder="TEST-... o APP_USR-..."
-                             className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
-                           />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Access Token del vendedor *</label>
-                        <p className="text-[11px] text-gray-500 font-medium ml-1">
-                          Token privado del vendedor. Con este token se crea el checkout; debe pertenecer a la cuenta que recibe el cobro.
-                        </p>
-                        <div className="relative">
-                           <ShieldCheck size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
-                           <input 
-                             required 
-                             type={showAccessToken ? "text" : "password"}
-                             value={manualAccessToken} 
-                             onChange={e => setManualAccessToken(e.target.value)}
-                             placeholder="TEST-... o APP_USR-..."
-                             className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-14 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
-                           />
-                           <button 
-                            type="button" 
-                            onClick={() => setShowAccessToken(!showAccessToken)}
-                            className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#009EE3]"
-                           >
-                            {showAccessToken ? <EyeOff size={18} /> : <Eye size={18} />}
-                           </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-end pt-4">
-                      <button 
-                        type="submit" 
-                        disabled={savingPayment}
-                        className="px-10 py-5 bg-gray-900 text-white rounded-2xl font-black shadow-xl hover:bg-gray-800 transition-all flex items-center gap-3 disabled:opacity-50 uppercase tracking-widest text-xs active:scale-95"
-                      >
-                        {savingPayment ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-                        {savingPayment ? 'Guardando...' : paymentConfig ? 'Actualizar manual' : 'Guardar manual'}
-                      </button>
-                    </div>
-                  </form>
-                    )}
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 flex flex-col items-center text-center gap-4">
+                     <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center ${paymentConfig ? 'bg-emerald-50 text-emerald-500' : 'bg-gray-50 text-gray-300'}`}>
+                        <CheckCircle2 size={32} />
+                     </div>
+                     <div>
+                        <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">Estado de Conexión</p>
+                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                          paymentConfig 
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                            : 'bg-gray-50 text-gray-500 border-gray-100'
+                        }`}>
+                           {paymentConfig ? 'Vinculado y Activo' : 'Sin Configurar'}
+                        </span>
+                     </div>
                   </div>
                 </div>
 
@@ -839,9 +645,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         "Hacé clic en Conectar Mercado Pago. Se abre el login de MP del vendedor de este local.",
                         "El vendedor autoriza la aplicación SplitMe. No necesita crear su propia app en Developers.",
                         "SplitMe guarda el access token y public key de esa cuenta automáticamente.",
-                        "Para sandbox, activá Modo prueba e iniciá sesión con el usuario vendedor de prueba (Resto1, Resto2, etc.).",
-                        "El cobro va directo a la cuenta del restaurante. SplitMe no retiene el dinero.",
-                        "Configuración manual solo si OAuth no está disponible aún."
+                        "Para probar, conectá con el usuario vendedor de prueba de MP (Resto1, Resto2, etc.) sin activar credenciales sandbox OAuth.",
+                        "El cobro va directo a la cuenta del restaurante. SplitMe no retiene el dinero."
                       ].map((step, i) => (
                         <li key={i} className="flex gap-4 items-start">
                           <span className="w-6 h-6 bg-white rounded-full flex items-center justify-center text-[10px] font-black text-[#009EE3] shadow-sm shrink-0 mt-0.5">{i+1}</span>
@@ -879,22 +684,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                          <ExternalLink size={14} /> Panel de Desarrolladores MP
                       </a>
                     </div>
-                  </div>
-
-                  <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 flex flex-col items-center text-center gap-4">
-                     <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center ${paymentConfig ? 'bg-emerald-50 text-emerald-500' : 'bg-gray-50 text-gray-300'}`}>
-                        <CheckCircle2 size={32} />
-                     </div>
-                     <div>
-                        <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">Estado de Conexión</p>
-                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
-                          paymentConfig 
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
-                            : 'bg-gray-50 text-gray-500 border-gray-100'
-                        }`}>
-                           {paymentConfig ? 'Vinculado y Activo' : 'Sin Configurar'}
-                        </span>
-                     </div>
                   </div>
                 </div>
               </div>
