@@ -80,7 +80,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   // Estados para Mercado Pago
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
   const [connectingMp, setConnectingMp] = useState(false);
-  const [mpTestMode, setMpTestMode] = useState(false);
+  const [mpTestMode, setMpTestMode] = useState(true);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -578,7 +578,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         onChange={(e) => setMpTestMode(e.target.checked)}
                         className="rounded border-gray-300 text-[#009EE3] focus:ring-[#009EE3]"
                       />
-                      Credenciales sandbox OAuth (TEST) — no recomendado; usá cuenta vendedor de prueba sin activar esto
+                      Modo sandbox (credenciales TEST + checkout sandbox de Mercado Pago)
                     </label>
 
                     <div className="flex flex-wrap items-center gap-4">
@@ -645,7 +645,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         "Hacé clic en Conectar Mercado Pago. Se abre el login de MP del vendedor de este local.",
                         "El vendedor autoriza la aplicación SplitMe. No necesita crear su propia app en Developers.",
                         "SplitMe guarda el access token y public key de esa cuenta automáticamente.",
-                        "Para probar, conectá con el usuario vendedor de prueba de MP (Resto1, Resto2, etc.) sin activar credenciales sandbox OAuth.",
+                        "Para probar, dejá activado Modo sandbox e iniciá sesión con el usuario vendedor de prueba (Resto1, Resto2, etc.).",
                         "El cobro va directo a la cuenta del restaurante. SplitMe no retiene el dinero."
                       ].map((step, i) => (
                         <li key={i} className="flex gap-4 items-start">
