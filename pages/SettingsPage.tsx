@@ -604,7 +604,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         onChange={(e) => setMpTestMode(e.target.checked)}
                         className="rounded border-gray-300 text-[#009EE3] focus:ring-[#009EE3]"
                       />
-                      Modo sandbox (credenciales TEST + checkout sandbox de Mercado Pago)
+                      Modo prueba (OAuth TEST + checkout prod con usuarios test de la app)
                     </label>
 
                     <div className="flex flex-wrap items-center gap-4">
