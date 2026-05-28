@@ -123,13 +123,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       // Cargar configuración de Mercado Pago
       const { data: mpData, error: mpError } = await supabase
         .from('payment_configs')
-        .select('id, restaurant_id, key_alias, user_account, oauth_connected_at, token_expires_at, provider, is_active, created_at')
+        .select('id, restaurant_id, key_alias, key_alias_test, token_cbu, token_cbu_test, oauth_test_mode, user_account, oauth_connected_at, token_expires_at, provider, is_active, created_at')
         .eq('restaurant_id', restaurant.id)
         .eq('provider', 'mercadopago')
         .maybeSingle();
       
       if (mpError) throw mpError;
       setPaymentConfig(mpData ?? null);
+      if (mpData) {
+        const inferredTestMode = mpData.oauth_test_mode ?? mpData.key_alias?.startsWith('TEST-') ?? false;
+        setMpTestMode(inferredTestMode);
+      }
 
       // Cargar configuración de Transferencia (buscar por cualquier banco de la lista)
       const { data: transferData, error: transferError } = await supabase
@@ -546,19 +550,41 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                     </p>
 
                     {paymentConfig?.oauth_connected_at ? (
-                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 space-y-2">
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 space-y-3">
                         <div className="flex items-center gap-2 text-emerald-700 font-black text-sm">
                           <CheckCircle2 size={18} />
                           Cuenta conectada
+                          <span className={`ml-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                            paymentConfig.oauth_test_mode
+                              ? 'bg-amber-100 text-amber-800 border-amber-200'
+                              : 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                          }`}>
+                            {paymentConfig.oauth_test_mode ? 'Sandbox' : 'Producción'}
+                          </span>
                         </div>
                         {paymentConfig.user_account && (
                           <p className="text-xs text-emerald-800 font-medium">
                             MP User ID: <span className="font-mono">{paymentConfig.user_account}</span>
                           </p>
                         )}
+                        {paymentConfig.key_alias_test && (
+                          <p className="text-xs text-emerald-800 font-medium truncate">
+                            Public Key TEST: <span className="font-mono">{paymentConfig.key_alias_test}</span>
+                          </p>
+                        )}
                         {paymentConfig.key_alias && (
                           <p className="text-xs text-emerald-800 font-medium truncate">
-                            Public Key: <span className="font-mono">{paymentConfig.key_alias}</span>
+                            Public Key APP_USR: <span className="font-mono">{paymentConfig.key_alias}</span>
+                          </p>
+                        )}
+                        {paymentConfig.token_cbu_test && (
+                          <p className="text-xs text-emerald-800 font-medium">
+                            Token TEST: <span className="font-mono">{paymentConfig.token_cbu_test.substring(0, 12)}...</span>
+                          </p>
+                        )}
+                        {paymentConfig.token_cbu && (
+                          <p className="text-xs text-emerald-800 font-medium">
+                            Token APP_USR: <span className="font-mono">{paymentConfig.token_cbu.substring(0, 12)}...</span>
                           </p>
                         )}
                         <p className="text-[11px] text-emerald-700">
