@@ -81,6 +81,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
   const [connectingMp, setConnectingMp] = useState(false);
   const [mpTestMode, setMpTestMode] = useState(true);
+  const [manualTestToken, setManualTestToken] = useState('');
+  const [manualTestPublicKey, setManualTestPublicKey] = useState('');
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -133,6 +135,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       if (mpData) {
         const inferredTestMode = mpData.oauth_test_mode ?? mpData.key_alias?.startsWith('TEST-') ?? false;
         setMpTestMode(inferredTestMode);
+        setManualTestToken(mpData.token_cbu_test || '');
+        setManualTestPublicKey(mpData.key_alias_test || '');
       }
 
       // Cargar configuración de Transferencia (buscar por cualquier banco de la lista)
@@ -203,6 +207,51 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       setPaymentMessage({ type: 'error', text: err?.message || 'Error al conectar Mercado Pago.' });
     } finally {
       setConnectingMp(false);
+    }
+  };
+
+  const handleSaveManualSandboxCreds = async () => {
+    if (!restaurant?.id) return;
+    const token = manualTestToken.trim();
+    const publicKey = manualTestPublicKey.trim();
+    if (!token.startsWith('TEST-') || !publicKey.startsWith('TEST-')) {
+      setPaymentMessage({
+        type: 'error',
+        text: 'Las credenciales sandbox deben empezar con TEST- (Access Token y Public Key del vendedor de prueba).',
+      });
+      return;
+    }
+
+    setSavingPayment(true);
+    setPaymentMessage(null);
+    try {
+      const payload = {
+        restaurant_id: restaurant.id,
+        provider: 'mercadopago',
+        token_cbu_test: token,
+        key_alias_test: publicKey,
+        oauth_test_mode: true,
+        is_active: true,
+      };
+
+      if (paymentConfig?.id) {
+        const { error } = await supabase
+          .from('payment_configs')
+          .update(payload)
+          .eq('id', paymentConfig.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('payment_configs').insert(payload);
+        if (error) throw error;
+      }
+
+      setMpTestMode(true);
+      await fetchPaymentConfig();
+      setPaymentMessage({ type: 'success', text: 'Credenciales sandbox TEST guardadas. Probá un pago en Vercel con comprador de prueba.' });
+    } catch (err: any) {
+      setPaymentMessage({ type: 'error', text: err?.message || 'No se pudieron guardar las credenciales sandbox.' });
+    } finally {
+      setSavingPayment(false);
     }
   };
 
@@ -604,8 +653,48 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         onChange={(e) => setMpTestMode(e.target.checked)}
                         className="rounded border-gray-300 text-[#009EE3] focus:ring-[#009EE3]"
                       />
-                      Modo prueba (OAuth TEST + checkout prod con usuarios test de la app)
+                      Modo sandbox (Checkout Pro en sandbox.mercadopago.com.ar con credenciales TEST)
                     </label>
+
+                    {mpTestMode && (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-5 space-y-4">
+                        <p className="text-xs text-amber-900 font-medium leading-relaxed">
+                          Para sandbox real, el Access Token TEST del vendedor debe funcionar en la API. Si OAuth sandbox devuelve un token inválido, pegá acá las credenciales TEST del vendedor de prueba (Developers → app SplitMe → Credenciales de prueba).
+                        </p>
+                        <div>
+                          <label className="text-[10px] font-black text-amber-900 uppercase tracking-widest block mb-2">
+                            Access Token TEST (vendedor)
+                          </label>
+                          <input
+                            type="password"
+                            value={manualTestToken}
+                            onChange={(e) => setManualTestToken(e.target.value)}
+                            placeholder="TEST-..."
+                            className="w-full rounded-xl border border-amber-200 bg-white px-4 py-3 text-xs font-mono text-gray-800"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black text-amber-900 uppercase tracking-widest block mb-2">
+                            Public Key TEST (vendedor)
+                          </label>
+                          <input
+                            type="text"
+                            value={manualTestPublicKey}
+                            onChange={(e) => setManualTestPublicKey(e.target.value)}
+                            placeholder="TEST-..."
+                            className="w-full rounded-xl border border-amber-200 bg-white px-4 py-3 text-xs font-mono text-gray-800"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleSaveManualSandboxCreds}
+                          disabled={savingPayment || connectingMp}
+                          className="px-6 py-3 bg-amber-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest disabled:opacity-50"
+                        >
+                          Guardar credenciales sandbox
+                        </button>
+                      </div>
+                    )}
 
                     <div className="flex flex-wrap items-center gap-4">
                       <button
@@ -671,7 +760,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         "Hacé clic en Conectar Mercado Pago. Se abre el login de MP del vendedor de este local.",
                         "El vendedor autoriza la aplicación SplitMe. No necesita crear su propia app en Developers.",
                         "SplitMe guarda el access token y public key de esa cuenta automáticamente.",
-                        "Para probar, dejá activado Modo sandbox e iniciá sesión con el usuario vendedor de prueba (Resto1, Resto2, etc.).",
+                        "Para probar en sandbox, activá Modo sandbox y guardá credenciales TEST del vendedor de prueba (o reconectá OAuth con ese usuario).",
+                        "En el checkout, iniciá sesión con el comprador de prueba y usá tarjeta APRO (titular APRO, DNI 12345678).",
                         "El cobro va directo a la cuenta del restaurante. SplitMe no retiene el dinero."
                       ].map((step, i) => (
                         <li key={i} className="flex gap-4 items-start">
