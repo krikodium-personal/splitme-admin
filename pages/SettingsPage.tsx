@@ -638,7 +638,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         </p>
                         <p>
                           Tarjeta: 5031 7557 3453 0604 · titular <strong>APRO</strong> · DNI 12345678 · CVV 123.
-                          No hace falta login de comprador en sandbox.
+                          Pagá como <strong>invitado</strong> (sin tu cuenta real de MP). Si ves «Como usuario» en el checkout, cerrá sesión en Mercado Pago o usá incógnito.
                         </p>
                       </div>
                     ) : (
