@@ -3,11 +3,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   Store, AlertCircle, Loader2, Camera, UploadCloud, 
-  Save, MapPin, CheckCircle2, CreditCard, Link as LinkIcon, RefreshCw, Zap,
-  Key, ShieldCheck, ExternalLink, User, Trash2
+  Save, MapPin, CheckCircle2, CreditCard, Link as LinkIcon, Zap,
+  Key, ShieldCheck, ExternalLink, User, Trash2, Eye, EyeOff
 } from 'lucide-react';
 import { Restaurant, setGlobalRestaurant, PaymentConfig } from '../types';
-import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_ANON_KEY } from '../supabase';
+import { supabase, isSupabaseConfigured } from '../supabase';
 
 interface SettingsPageProps {
   restaurant: Restaurant | null;
@@ -41,30 +41,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
     }
   }, [tabParam, navigate]);
 
-  useEffect(() => {
-    const mpConnected = searchParams.get('mp_connected');
-    const mpError = searchParams.get('mp_error');
-    const mpUserId = searchParams.get('mp_user_id');
-
-    if (mpConnected === '1') {
-      setPaymentMessage({
-        type: 'success',
-        text: mpUserId
-          ? `Mercado Pago conectado correctamente (User ID ${mpUserId}).`
-          : 'Mercado Pago conectado correctamente.',
-      });
-      fetchPaymentConfig();
-      updateURL({ mp_connected: null, mp_user_id: null, mp_error: null });
-    } else if (mpError) {
-      setPaymentMessage({
-        type: 'error',
-        text: `No se pudo conectar Mercado Pago: ${decodeURIComponent(mpError)}`,
-      });
-      updateURL({ mp_error: null });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -77,12 +53,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const [restMessage, setRestMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
-  // Estados para Mercado Pago
+  // Estados para Mercado Pago (Checkout Pro — app propia del restaurante)
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
-  const [connectingMp, setConnectingMp] = useState(false);
-  const [mpTestMode, setMpTestMode] = useState(true);
-  const [manualTestToken, setManualTestToken] = useState('');
-  const [manualTestPublicKey, setManualTestPublicKey] = useState('');
+  const [mpUserId, setMpUserId] = useState('');
+  const [mpPublicKey, setMpPublicKey] = useState('');
+  const [mpAccessToken, setMpAccessToken] = useState('');
+  const [mpUseTestCredentials, setMpUseTestCredentials] = useState(false);
+  const [showAccessToken, setShowAccessToken] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -133,10 +110,22 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       if (mpError) throw mpError;
       setPaymentConfig(mpData ?? null);
       if (mpData) {
-        const inferredTestMode = mpData.oauth_test_mode ?? mpData.key_alias?.startsWith('TEST-') ?? false;
-        setMpTestMode(inferredTestMode);
-        setManualTestToken(mpData.token_cbu_test || '');
-        setManualTestPublicKey(mpData.key_alias_test || '');
+        const useTest = mpData.oauth_test_mode === true
+          || (!!mpData.token_cbu_test && !mpData.token_cbu);
+        setMpUseTestCredentials(useTest);
+        setMpUserId(mpData.user_account || '');
+        if (useTest) {
+          setMpPublicKey(mpData.key_alias_test || mpData.key_alias || '');
+          setMpAccessToken('');
+        } else {
+          setMpPublicKey(mpData.key_alias || '');
+          setMpAccessToken('');
+        }
+      } else {
+        setMpUserId('');
+        setMpPublicKey('');
+        setMpAccessToken('');
+        setMpUseTestCredentials(false);
       }
 
       // Cargar configuración de Transferencia (buscar por cualquier banco de la lista)
@@ -160,79 +149,74 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
     }
   };
 
-  const handleConnectMercadoPago = async () => {
+  const handleSaveMpConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!restaurant?.id) return;
 
-    setConnectingMp(true);
-    setPaymentMessage(null);
+    const publicKey = mpPublicKey.trim();
+    let accessToken = mpAccessToken.trim();
+    const userId = mpUserId.trim();
 
-    try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session?.access_token) {
-        setPaymentMessage({ type: 'error', text: 'Sesión expirada. Volvé a iniciar sesión.' });
-        return;
-      }
+    if (!publicKey) {
+      setPaymentMessage({ type: 'error', text: 'Completá el Public Key de tu aplicación de Mercado Pago.' });
+      return;
+    }
 
-      const returnUrl = `${window.location.origin}/settings?tab=payments`;
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/mercadopago-oauth-start`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          restaurant_id: restaurant.id,
-          return_url: returnUrl,
-          test_mode: mpTestMode,
-        }),
-      });
+    if (!accessToken && paymentConfig) {
+      accessToken = (mpUseTestCredentials ? paymentConfig.token_cbu_test : paymentConfig.token_cbu) || '';
+    }
+    if (!accessToken) {
+      setPaymentMessage({ type: 'error', text: 'Completá el Access Token de tu aplicación de Mercado Pago.' });
+      return;
+    }
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data?.error) {
+    if (mpUseTestCredentials) {
+      if (!publicKey.startsWith('TEST-') || !accessToken.startsWith('TEST-')) {
         setPaymentMessage({
           type: 'error',
-          text: data?.error || `Error al iniciar OAuth (${res.status})`,
+          text: 'Con credenciales de prueba activadas, Public Key y Access Token deben empezar con TEST-.',
         });
         return;
       }
-
-      if (!data.authorization_url) {
-        setPaymentMessage({ type: 'error', text: 'No se recibió URL de autorización de Mercado Pago.' });
-        return;
-      }
-
-      window.location.href = data.authorization_url;
-    } catch (err: any) {
-      setPaymentMessage({ type: 'error', text: err?.message || 'Error al conectar Mercado Pago.' });
-    } finally {
-      setConnectingMp(false);
-    }
-  };
-
-  const handleSaveManualSandboxCreds = async () => {
-    if (!restaurant?.id) return;
-    const token = manualTestToken.trim();
-    const publicKey = manualTestPublicKey.trim();
-    if (!token.startsWith('TEST-') || !publicKey.startsWith('TEST-')) {
+    } else if (!publicKey.startsWith('APP_USR-') || !accessToken.startsWith('APP_USR-')) {
       setPaymentMessage({
         type: 'error',
-        text: 'Las credenciales sandbox deben empezar con TEST- (Access Token y Public Key del vendedor de prueba).',
+        text: 'Para producción usá credenciales de producción de tu app (APP_USR-...) en Developers.',
       });
       return;
     }
 
     setSavingPayment(true);
     setPaymentMessage(null);
+
     try {
-      const payload = {
+      const base = {
         restaurant_id: restaurant.id,
         provider: 'mercadopago',
-        token_cbu_test: token,
-        key_alias_test: publicKey,
-        oauth_test_mode: true,
+        user_account: userId || null,
+        oauth_connected_at: null,
+        refresh_token: null,
+        token_expires_at: null,
         is_active: true,
       };
+
+      const payload = mpUseTestCredentials
+        ? {
+            ...base,
+            oauth_test_mode: true,
+            token_cbu_test: accessToken,
+            key_alias_test: publicKey,
+            token_cbu: null,
+            key_alias: null,
+          }
+        : {
+            ...base,
+            oauth_test_mode: false,
+            token_cbu: accessToken,
+            key_alias: publicKey,
+            token_cbu_test: null,
+            key_alias_test: null,
+          };
 
       if (paymentConfig?.id) {
         const { error } = await supabase
@@ -245,11 +229,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         if (error) throw error;
       }
 
-      setMpTestMode(true);
       await fetchPaymentConfig();
-      setPaymentMessage({ type: 'success', text: 'Credenciales sandbox TEST guardadas. Probá un pago en Vercel con comprador de prueba.' });
+      setMpAccessToken('');
+      setPaymentMessage({
+        type: 'success',
+        text: mpUseTestCredentials
+          ? 'Credenciales de prueba guardadas. Probá el checkout con tarjetas de prueba.'
+          : 'Credenciales de producción guardadas. Los cobros se acreditan en tu cuenta de Mercado Pago.',
+      });
     } catch (err: any) {
-      setPaymentMessage({ type: 'error', text: err?.message || 'No se pudieron guardar las credenciales sandbox.' });
+      setPaymentMessage({
+        type: 'error',
+        text: err?.message || 'No se pudieron guardar las credenciales.',
+      });
     } finally {
       setSavingPayment(false);
     }
@@ -268,7 +260,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       
       if (error) throw error;
       setPaymentConfig(null);
-      setPaymentMessage({ type: 'success', text: 'Cuenta de Mercado Pago desconectada.' });
+      setMpUserId('');
+      setMpPublicKey('');
+      setMpAccessToken('');
+      setMpUseTestCredentials(false);
+      setPaymentMessage({ type: 'success', text: 'Credenciales de Mercado Pago eliminadas.' });
     } catch (err: any) {
       alert("Error al desvincular: " + (err.message || "Error desconocido"));
     } finally {
@@ -569,7 +565,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
            </form>
         </div>
       ) : (
-        /* Pestaña de Pasarela de Pagos: Mercado Pago OAuth */
+        /* Pestaña de Pasarela de Pagos: Checkout Pro */
         <div className="bg-white rounded-[3rem] border border-gray-100 shadow-xl overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
            <div className="bg-[#009EE3] px-12 py-10 border-b border-white/10 flex items-center justify-between text-white relative overflow-hidden">
               <div className="relative z-10">
@@ -577,7 +573,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                   <CreditCard size={24} />
                   <h2 className="text-2xl font-black tracking-tight">Medios de Pago</h2>
                 </div>
-                <p className="text-white/80 font-medium text-sm">Conectá la cuenta Mercado Pago de este local. El cobro va directo al restaurante; SplitMe no es el cobrador.</p>
+                <p className="text-white/80 font-medium text-sm">
+                  Checkout Pro con la aplicación de Mercado Pago de este local. El cobro va 100% al restaurante; SplitMe no retiene el dinero.
+                </p>
               </div>
               <div className="absolute top-0 right-0 p-10 opacity-10 rotate-12">
                  <Zap size={120} fill="white" />
@@ -587,162 +585,138 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
            <div className="p-12 space-y-12">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
                 <div className="lg:col-span-7 space-y-8">
-                  <div className="space-y-6 bg-gray-50/50 p-10 rounded-[2.5rem] border border-gray-100">
+                  <form onSubmit={handleSaveMpConfig} className="space-y-6 bg-gray-50/50 p-10 rounded-[2.5rem] border border-gray-100">
                     <div className="flex items-center gap-3 mb-2">
-                      <LinkIcon className="text-[#009EE3]" size={20} />
-                      <h3 className="text-lg font-black text-gray-900 tracking-tight">Conectar con Mercado Pago</h3>
+                      <CreditCard className="text-[#009EE3]" size={20} />
+                      <h3 className="text-lg font-black text-gray-900 tracking-tight">Checkout Pro — tu aplicación MP</h3>
                     </div>
 
                     <p className="text-sm text-gray-600 font-medium leading-relaxed">
-                      El restaurante inicia sesión en Mercado Pago y autoriza a SplitMe para crear checkouts en su cuenta.
-                      No hace falta crear una aplicación propia ni copiar tokens a mano.
+                      Creá una aplicación en Mercado Pago con la cuenta de este local y pegá acá el Public Key y el Access Token.
                     </p>
-
-                    {paymentConfig?.oauth_connected_at ? (
-                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 space-y-3">
-                        <div className="flex items-center gap-2 text-emerald-700 font-black text-sm">
-                          <CheckCircle2 size={18} />
-                          Cuenta conectada
-                          <span className={`ml-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
-                            paymentConfig.oauth_test_mode
-                              ? 'bg-amber-100 text-amber-800 border-amber-200'
-                              : 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                          }`}>
-                            {paymentConfig.oauth_test_mode ? 'Sandbox' : 'Producción'}
-                          </span>
-                        </div>
-                        {paymentConfig.user_account && (
-                          <p className="text-xs text-emerald-800 font-medium">
-                            MP User ID: <span className="font-mono">{paymentConfig.user_account}</span>
-                          </p>
-                        )}
-                        {paymentConfig.key_alias_test && (
-                          <p className="text-xs text-emerald-800 font-medium truncate">
-                            Public Key TEST: <span className="font-mono">{paymentConfig.key_alias_test}</span>
-                          </p>
-                        )}
-                        {paymentConfig.key_alias && (
-                          <p className="text-xs text-emerald-800 font-medium truncate">
-                            Public Key APP_USR: <span className="font-mono">{paymentConfig.key_alias}</span>
-                          </p>
-                        )}
-                        {paymentConfig.token_cbu_test && (
-                          <p className="text-xs text-emerald-800 font-medium">
-                            Token TEST: <span className="font-mono">{paymentConfig.token_cbu_test.substring(0, 12)}...</span>
-                          </p>
-                        )}
-                        {paymentConfig.token_cbu && (
-                          <p className="text-xs text-emerald-800 font-medium">
-                            Token APP_USR: <span className="font-mono">{paymentConfig.token_cbu.substring(0, 12)}...</span>
-                          </p>
-                        )}
-                        <p className="text-[11px] text-emerald-700">
-                          Conectado el {new Date(paymentConfig.oauth_connected_at).toLocaleString('es-AR')}
-                        </p>
-                      </div>
-                    ) : paymentConfig && !paymentConfig.oauth_connected_at ? (
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
-                        Hay una configuración anterior. Reconectá con Mercado Pago para actualizar las credenciales.
-                      </div>
-                    ) : null}
 
                     <label className="flex items-center gap-3 text-xs font-bold text-gray-600 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={mpTestMode}
-                        onChange={(e) => setMpTestMode(e.target.checked)}
+                        checked={mpUseTestCredentials}
+                        onChange={(e) => setMpUseTestCredentials(e.target.checked)}
                         className="rounded border-gray-300 text-[#009EE3] focus:ring-[#009EE3]"
                       />
-                      Modo sandbox (Checkout Pro en sandbox.mercadopago.com.ar con credenciales TEST)
+                      Usar credenciales de prueba (TEST-...) — solo si tu app las muestra habilitadas
                     </label>
 
-                    {mpTestMode && (
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-5 space-y-4">
-                        <p className="text-xs text-amber-900 font-medium leading-relaxed">
-                          Para sandbox real, el Access Token TEST del vendedor debe funcionar en la API. Si OAuth sandbox devuelve un token inválido, pegá acá las credenciales TEST del vendedor de prueba (Developers → app SplitMe → Credenciales de prueba).
-                        </p>
-                        <div>
-                          <label className="text-[10px] font-black text-amber-900 uppercase tracking-widest block mb-2">
-                            Access Token TEST (vendedor)
-                          </label>
-                          <input
-                            type="password"
-                            value={manualTestToken}
-                            onChange={(e) => setManualTestToken(e.target.value)}
-                            placeholder="TEST-..."
-                            className="w-full rounded-xl border border-amber-200 bg-white px-4 py-3 text-xs font-mono text-gray-800"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-amber-900 uppercase tracking-widest block mb-2">
-                            Public Key TEST (vendedor)
-                          </label>
-                          <input
-                            type="text"
-                            value={manualTestPublicKey}
-                            onChange={(e) => setManualTestPublicKey(e.target.value)}
-                            placeholder="TEST-..."
-                            className="w-full rounded-xl border border-amber-200 bg-white px-4 py-3 text-xs font-mono text-gray-800"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleSaveManualSandboxCreds}
-                          disabled={savingPayment || connectingMp}
-                          className="px-6 py-3 bg-amber-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest disabled:opacity-50"
-                        >
-                          Guardar credenciales sandbox
-                        </button>
+                    {!mpUseTestCredentials && (
+                      <div className="rounded-2xl border border-blue-100 bg-blue-50/80 p-4 text-xs text-blue-900 leading-relaxed">
+                        Para probar pagos con tarjetas de prueba, lo habitual es usar las credenciales de{' '}
+                        <strong>producción (APP_USR)</strong> de tu app y pagar con tarjetas de prueba de MP.
+                        No hace falta OAuth ni la app de SplitMe.
                       </div>
                     )}
 
-                    <div className="flex flex-wrap items-center gap-4">
-                      <button
-                        type="button"
-                        onClick={handleConnectMercadoPago}
-                        disabled={connectingMp || savingPayment}
-                        className="px-8 py-4 bg-[#009EE3] text-white rounded-2xl font-black shadow-xl shadow-blue-100 hover:bg-[#0089C7] transition-all flex items-center gap-3 disabled:opacity-50 uppercase tracking-widest text-xs active:scale-95"
-                      >
-                        {connectingMp ? <Loader2 size={18} className="animate-spin" /> : <LinkIcon size={18} />}
-                        {connectingMp ? 'Redirigiendo...' : paymentConfig?.oauth_connected_at ? 'Reconectar Mercado Pago' : 'Conectar Mercado Pago'}
-                      </button>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">MP User ID (opcional)</label>
+                      <div className="relative">
+                        <User size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          value={mpUserId}
+                          onChange={(e) => setMpUserId(e.target.value.replace(/\D/g, ''))}
+                          placeholder="Ej: 3110331459"
+                          className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
+                        />
+                      </div>
+                    </div>
 
-                      {paymentConfig && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Public Key *</label>
+                      <div className="relative">
+                        <Key size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          required
+                          value={mpPublicKey}
+                          onChange={(e) => setMpPublicKey(e.target.value)}
+                          placeholder={mpUseTestCredentials ? 'TEST-...' : 'APP_USR-...'}
+                          className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Access Token *</label>
+                      <div className="relative">
+                        <ShieldCheck size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          required
+                          type={showAccessToken ? 'text' : 'password'}
+                          value={mpAccessToken}
+                          onChange={(e) => setMpAccessToken(e.target.value)}
+                          placeholder={mpUseTestCredentials ? 'TEST-...' : 'APP_USR-...'}
+                          className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-14 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
+                        />
                         <button
                           type="button"
-                          onClick={handleDisconnectMP}
-                          disabled={connectingMp || savingPayment}
-                          className="text-rose-500 hover:text-rose-700 font-black text-[10px] uppercase tracking-widest flex items-center gap-2"
+                          onClick={() => setShowAccessToken(!showAccessToken)}
+                          className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#009EE3]"
                         >
-                          <Trash2 size={14} /> Desconectar
+                          {showAccessToken ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
+                      </div>
+                      {paymentConfig && (
+                        <p className="text-[11px] text-gray-500 ml-1">
+                          Si no cambiás el Access Token, dejalo vacío al actualizar y se conserva el guardado.
+                        </p>
                       )}
                     </div>
 
                     {paymentMessage && (
-                      <div className={`p-5 rounded-2xl flex items-center gap-3 border-2 animate-in slide-in-from-bottom-2 ${
+                      <div className={`p-5 rounded-2xl flex items-center gap-3 border-2 ${
                         paymentMessage.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-rose-50 border-rose-100 text-rose-700'
                       }`}>
                         {paymentMessage.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
                         <p className="font-bold text-xs">{paymentMessage.text}</p>
                       </div>
                     )}
-                  </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
+                      {paymentConfig && (
+                        <button
+                          type="button"
+                          onClick={handleDisconnectMP}
+                          disabled={savingPayment}
+                          className="text-rose-500 hover:text-rose-700 font-black text-[10px] uppercase tracking-widest flex items-center gap-2"
+                        >
+                          <Trash2 size={14} /> Eliminar credenciales
+                        </button>
+                      )}
+                      <div className="flex-1" />
+                      <button
+                        type="submit"
+                        disabled={savingPayment}
+                        className="px-10 py-5 bg-[#009EE3] text-white rounded-2xl font-black shadow-xl shadow-blue-100 hover:bg-[#0089C7] transition-all flex items-center gap-3 disabled:opacity-50 uppercase tracking-widest text-xs active:scale-95"
+                      >
+                        {savingPayment ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                        {savingPayment ? 'Guardando...' : paymentConfig ? 'Actualizar credenciales' : 'Guardar credenciales'}
+                      </button>
+                    </div>
+                  </form>
 
                   <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 flex flex-col items-center text-center gap-4">
-                     <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center ${paymentConfig ? 'bg-emerald-50 text-emerald-500' : 'bg-gray-50 text-gray-300'}`}>
-                        <CheckCircle2 size={32} />
-                     </div>
-                     <div>
-                        <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">Estado de Conexión</p>
-                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
-                          paymentConfig 
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
-                            : 'bg-gray-50 text-gray-500 border-gray-100'
-                        }`}>
-                           {paymentConfig ? 'Vinculado y Activo' : 'Sin Configurar'}
-                        </span>
-                     </div>
+                    <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center ${
+                      paymentConfig?.token_cbu || paymentConfig?.token_cbu_test
+                        ? 'bg-emerald-50 text-emerald-500'
+                        : 'bg-gray-50 text-gray-300'
+                    }`}>
+                      <CheckCircle2 size={32} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">Estado de conexión</p>
+                      <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                        paymentConfig?.token_cbu || paymentConfig?.token_cbu_test
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                          : 'bg-gray-50 text-gray-500 border-gray-100'
+                      }`}>
+                        {paymentConfig?.token_cbu || paymentConfig?.token_cbu_test ? 'Vinculado y activo' : 'Sin configurar'}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -757,12 +731,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                     
                     <ol className="space-y-4">
                       {[
-                        "Hacé clic en Conectar Mercado Pago. Se abre el login de MP del vendedor de este local.",
-                        "El vendedor autoriza la aplicación SplitMe. No necesita crear su propia app en Developers.",
-                        "SplitMe guarda el access token y public key de esa cuenta automáticamente.",
-                        "Para probar en sandbox, activá Modo sandbox y guardá credenciales TEST del vendedor de prueba (o reconectá OAuth con ese usuario).",
-                        "En el checkout, iniciá sesión con el comprador de prueba y usá tarjeta APRO (titular APRO, DNI 12345678).",
-                        "El cobro va directo a la cuenta del restaurante. SplitMe no retiene el dinero."
+                        "Entrá a mercadopago.com.ar con la cuenta real del restaurante (no con usuario TESTUSER).",
+                        "En Developers → Crear aplicación: Pagos online, Con un desarrollo propio.",
+                        "Paso 3: elegí Checkout Pro (no Bricks ni API).",
+                        "En Credenciales de producción copiá Public Key y Access Token (APP_USR) y pegalos en el formulario.",
+                        "Para probar: usá tarjetas de prueba de MP y un comprador de prueba; el cobro sigue yendo a tu cuenta.",
+                        "SplitMe no retiene el dinero; el fee de plataforma se cobra aparte (mensual)."
                       ].map((step, i) => (
                         <li key={i} className="flex gap-4 items-start">
                           <span className="w-6 h-6 bg-white rounded-full flex items-center justify-center text-[10px] font-black text-[#009EE3] shadow-sm shrink-0 mt-0.5">{i+1}</span>
