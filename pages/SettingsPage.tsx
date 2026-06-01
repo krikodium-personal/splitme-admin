@@ -13,6 +13,16 @@ interface SettingsPageProps {
   restaurant: Restaurant | null;
 }
 
+/** Caracteres visibles del access token guardado (prefijo APP_USR- / TEST- + inicio del id). */
+const MP_TOKEN_PREFIX_VISIBLE = 28;
+
+function mpTokenPrefixPreview(value: string | null | undefined): string {
+  const v = value?.trim() || '';
+  if (!v) return '';
+  if (v.length <= MP_TOKEN_PREFIX_VISIBLE) return v;
+  return `${v.slice(0, MP_TOKEN_PREFIX_VISIBLE)}…`;
+}
+
 const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -62,6 +72,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const [showAccessToken, setShowAccessToken] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+  const storedMpAccessToken =
+    paymentConfig?.token_cbu?.trim() || paymentConfig?.token_cbu_test?.trim() || '';
+  const hasStoredMpAccessToken = storedMpAccessToken.length > 0;
 
   // Estados para Transferencia
   const [transferConfig, setTransferConfig] = useState<PaymentConfig | null>(null);
@@ -156,7 +170,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       return;
     }
 
-    if (!accessToken && paymentConfig) {
+    const preservingStoredToken = !mpAccessToken.trim();
+    if (preservingStoredToken && paymentConfig) {
       accessToken = paymentConfig.token_cbu_test || paymentConfig.token_cbu || '';
     }
     if (!accessToken) {
@@ -197,23 +212,36 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         is_active: true,
       };
 
-      const payload = mpUseTestCredentials
-        ? {
-            ...base,
-            oauth_test_mode: true,
-            token_cbu: isAppUsr ? accessToken : null,
-            key_alias: isAppUsr ? publicKey : null,
-            token_cbu_test: isTestPrefix ? accessToken : null,
-            key_alias_test: isTestPrefix ? publicKey : null,
+      const payload: Record<string, unknown> = { ...base };
+
+      if (mpUseTestCredentials) {
+        payload.oauth_test_mode = true;
+        if (isAppUsr) {
+          payload.token_cbu = accessToken;
+          payload.key_alias = publicKey;
+        }
+        if (isTestPrefix) {
+          payload.token_cbu_test = accessToken;
+          payload.key_alias_test = publicKey;
+        }
+        // Solo borrar el bucket opuesto si el usuario pegó credenciales nuevas
+        if (!preservingStoredToken) {
+          if (isAppUsr) {
+            payload.token_cbu_test = null;
+            payload.key_alias_test = null;
           }
-        : {
-            ...base,
-            oauth_test_mode: false,
-            token_cbu: accessToken,
-            key_alias: publicKey,
-            token_cbu_test: null,
-            key_alias_test: null,
-          };
+          if (isTestPrefix) {
+            payload.token_cbu = null;
+            payload.key_alias = null;
+          }
+        }
+      } else {
+        payload.oauth_test_mode = false;
+        payload.token_cbu = accessToken;
+        payload.key_alias = publicKey;
+        payload.token_cbu_test = null;
+        payload.key_alias_test = null;
+      }
 
       if (paymentConfig?.id) {
         const { error } = await supabase
@@ -648,14 +676,31 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
 
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Access Token *</label>
+                      {hasStoredMpAccessToken && !mpAccessToken && (
+                        <div
+                          className="flex items-stretch rounded-2xl border-2 border-emerald-100 bg-emerald-50/60 overflow-hidden"
+                          aria-label="Access token guardado"
+                        >
+                          <span className="font-mono text-sm font-bold text-emerald-900 px-4 py-3.5 shrink-0 border-r border-emerald-100/80">
+                            {mpTokenPrefixPreview(storedMpAccessToken)}
+                          </span>
+                          <span className="font-mono text-sm text-emerald-700/50 tracking-[0.2em] px-4 py-3.5 select-none">
+                            ••••••••••••••••
+                          </span>
+                        </div>
+                      )}
                       <div className="relative">
                         <ShieldCheck size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input
-                          required
+                          required={!hasStoredMpAccessToken}
                           type={showAccessToken ? 'text' : 'password'}
                           value={mpAccessToken}
                           onChange={(e) => setMpAccessToken(e.target.value)}
-                          placeholder="APP_USR-... (producción de tu app)"
+                          placeholder={
+                            hasStoredMpAccessToken
+                              ? 'Opcional: pegá un token nuevo para reemplazarlo'
+                              : 'APP_USR-... (producción de tu app)'
+                          }
                           className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-14 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
                         />
                         <button
@@ -666,9 +711,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                           {showAccessToken ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
                       </div>
-                      {paymentConfig && (
-                        <p className="text-[11px] text-gray-500 ml-1">
-                          Si no cambiás el Access Token, dejalo vacío al actualizar y se conserva el guardado.
+                      {hasStoredMpAccessToken && !mpAccessToken && (
+                        <p className="text-[11px] text-emerald-700 ml-1 font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 size={14} />
+                          Token guardado. Dejá el campo de abajo vacío para conservarlo o pegá uno nuevo para reemplazarlo.
+                        </p>
+                      )}
+                      {paymentConfig && !hasStoredMpAccessToken && (
+                        <p className="text-[11px] text-amber-700 ml-1">
+                          No hay access token guardado. Pegalo y hacé clic en «Guardar credenciales».
                         </p>
                       )}
                     </div>
