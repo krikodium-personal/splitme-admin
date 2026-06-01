@@ -110,17 +110,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       if (mpError) throw mpError;
       setPaymentConfig(mpData ?? null);
       if (mpData) {
-        const useTest = mpData.oauth_test_mode === true
-          || (!!mpData.token_cbu_test && !mpData.token_cbu);
-        setMpUseTestCredentials(useTest);
+        const useSandbox = mpData.oauth_test_mode === true;
+        setMpUseTestCredentials(useSandbox);
         setMpUserId(mpData.user_account || '');
-        if (useTest) {
-          setMpPublicKey(mpData.key_alias_test || mpData.key_alias || '');
-          setMpAccessToken('');
-        } else {
-          setMpPublicKey(mpData.key_alias || '');
-          setMpAccessToken('');
-        }
+        setMpPublicKey(mpData.key_alias_test || mpData.key_alias || '');
+        setMpAccessToken('');
       } else {
         setMpUserId('');
         setMpPublicKey('');
@@ -163,25 +157,28 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
     }
 
     if (!accessToken && paymentConfig) {
-      accessToken = (mpUseTestCredentials ? paymentConfig.token_cbu_test : paymentConfig.token_cbu) || '';
+      accessToken = paymentConfig.token_cbu_test || paymentConfig.token_cbu || '';
     }
     if (!accessToken) {
       setPaymentMessage({ type: 'error', text: 'Completá el Access Token de tu aplicación de Mercado Pago.' });
       return;
     }
 
+    const isTestPrefix = publicKey.startsWith('TEST-') && accessToken.startsWith('TEST-');
+    const isAppUsr = publicKey.startsWith('APP_USR-') && accessToken.startsWith('APP_USR-');
+
     if (mpUseTestCredentials) {
-      if (!publicKey.startsWith('TEST-') || !accessToken.startsWith('TEST-')) {
+      if (!isTestPrefix && !isAppUsr) {
         setPaymentMessage({
           type: 'error',
-          text: 'Con credenciales de prueba activadas, Public Key y Access Token deben empezar con TEST-.',
+          text: 'En modo sandbox usá credenciales APP_USR de producción de tu app (lo habitual) o TEST- si tu app las muestra.',
         });
         return;
       }
-    } else if (!publicKey.startsWith('APP_USR-') || !accessToken.startsWith('APP_USR-')) {
+    } else if (!isAppUsr) {
       setPaymentMessage({
         type: 'error',
-        text: 'Para producción usá credenciales de producción de tu app (APP_USR-...) en Developers.',
+        text: 'Sin modo sandbox, usá credenciales APP_USR de producción de tu app.',
       });
       return;
     }
@@ -204,10 +201,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         ? {
             ...base,
             oauth_test_mode: true,
-            token_cbu_test: accessToken,
-            key_alias_test: publicKey,
-            token_cbu: null,
-            key_alias: null,
+            token_cbu: isAppUsr ? accessToken : null,
+            key_alias: isAppUsr ? publicKey : null,
+            token_cbu_test: isTestPrefix ? accessToken : null,
+            key_alias_test: isTestPrefix ? publicKey : null,
           }
         : {
             ...base,
@@ -234,8 +231,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       setPaymentMessage({
         type: 'success',
         text: mpUseTestCredentials
-          ? 'Credenciales de prueba guardadas. Probá el checkout con tarjetas de prueba.'
-          : 'Credenciales de producción guardadas. Los cobros se acreditan en tu cuenta de Mercado Pago.',
+          ? 'Modo sandbox activado. Probá el checkout con tarjetas de prueba (sandbox.mercadopago.com.ar).'
+          : 'Modo producción guardado. Solo cobros con tarjetas reales.',
       });
     } catch (err: any) {
       setPaymentMessage({
@@ -602,14 +599,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         onChange={(e) => setMpUseTestCredentials(e.target.checked)}
                         className="rounded border-gray-300 text-[#009EE3] focus:ring-[#009EE3]"
                       />
-                      Usar credenciales de prueba (TEST-...) — solo si tu app las muestra habilitadas
+                      Modo sandbox — probar con tarjetas de prueba
                     </label>
 
-                    {!mpUseTestCredentials && (
+                    {mpUseTestCredentials ? (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-xs text-amber-900 leading-relaxed space-y-2">
+                        <p>
+                          <strong>Sí, usás sandbox.</strong> Pegá las credenciales <strong>APP_USR de producción</strong> de la app del restaurante
+                          (no hace falta que MP muestre TEST-). El checkout abre en <strong>sandbox.mercadopago.com.ar</strong>.
+                        </p>
+                        <p>
+                          Tarjeta: 5031 7557 3453 0604 · titular <strong>APRO</strong> · DNI 12345678 · CVV 123.
+                          No hace falta login de comprador en sandbox.
+                        </p>
+                      </div>
+                    ) : (
                       <div className="rounded-2xl border border-blue-100 bg-blue-50/80 p-4 text-xs text-blue-900 leading-relaxed">
-                        Para probar pagos con tarjetas de prueba, lo habitual es usar las credenciales de{' '}
-                        <strong>producción (APP_USR)</strong> de tu app y pagar con tarjetas de prueba de MP.
-                        No hace falta OAuth ni la app de SplitMe.
+                        <strong>Modo producción.</strong> Solo tarjetas reales. Para pruebas, activá «Modo sandbox» arriba.
                       </div>
                     )}
 
@@ -634,7 +640,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                           required
                           value={mpPublicKey}
                           onChange={(e) => setMpPublicKey(e.target.value)}
-                          placeholder={mpUseTestCredentials ? 'TEST-...' : 'APP_USR-...'}
+                          placeholder="APP_USR-... (producción de tu app)"
                           className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
                         />
                       </div>
@@ -649,7 +655,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                           type={showAccessToken ? 'text' : 'password'}
                           value={mpAccessToken}
                           onChange={(e) => setMpAccessToken(e.target.value)}
-                          placeholder={mpUseTestCredentials ? 'TEST-...' : 'APP_USR-...'}
+                          placeholder="APP_USR-... (producción de tu app)"
                           className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-14 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
                         />
                         <button
@@ -735,7 +741,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         "En Developers → Crear aplicación: Pagos online, Con un desarrollo propio.",
                         "Paso 3: elegí Checkout Pro (no Bricks ni API).",
                         "En Credenciales de producción copiá Public Key y Access Token (APP_USR) y pegalos en el formulario.",
-                        "Para probar: usá tarjetas de prueba de MP y un comprador de prueba; el cobro sigue yendo a tu cuenta.",
+                        "Para probar: activá «Modo sandbox», cargá APP_USR de tu app y pagá con tarjeta de prueba en sandbox.mercadopago.com.ar.",
                         "SplitMe no retiene el dinero; el fee de plataforma se cobra aparte (mensual)."
                       ].map((step, i) => (
                         <li key={i} className="flex gap-4 items-start">
