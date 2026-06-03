@@ -122,6 +122,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [mpDraftRestored, setMpDraftRestored] = useState(false);
+  const [connectingMp, setConnectingMp] = useState(false);
   const mpDraftReadyRef = useRef(false);
 
   const storedMpAccessToken =
@@ -162,6 +163,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   }, [restaurant]);
 
   useEffect(() => {
+    if (searchParams.get('mp_connected') === '1') {
+      setPaymentMessage({ type: 'success', text: 'Mercado Pago conectado correctamente vía OAuth.' });
+      fetchPaymentConfig();
+      updateURL({ mp_connected: null, mp_error: null, mp_user_id: null });
+    }
+    const mpError = searchParams.get('mp_error');
+    if (mpError) {
+      setPaymentMessage({ type: 'error', text: `Error al conectar Mercado Pago: ${decodeURIComponent(mpError)}` });
+      updateURL({ mp_error: null });
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (!restaurant?.id || !mpDraftReadyRef.current) return;
     const draft: MpFormDraft = {
       userId: mpUserId,
@@ -184,7 +198,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       // Cargar configuración de Mercado Pago
       const { data: mpData, error: mpError } = await supabase
         .from('payment_configs')
-        .select('id, restaurant_id, key_alias, key_alias_test, token_cbu, token_cbu_test, oauth_test_mode, user_account, oauth_connected_at, token_expires_at, provider, is_active, created_at')
+        .select('id, restaurant_id, key_alias, key_alias_test, token_cbu, token_cbu_test, oauth_test_mode, oauth_requires_reconnect, user_account, oauth_connected_at, token_expires_at, provider, is_active, created_at')
         .eq('restaurant_id', restaurant.id)
         .eq('provider', 'mercadopago')
         .maybeSingle();
@@ -235,6 +249,38 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       console.error("Error al cargar config de pagos:", err.message || err);
     } finally {
       mpDraftReadyRef.current = true;
+    }
+  };
+
+  const handleConnectMercadoPago = async () => {
+    if (!restaurant?.id) return;
+    setConnectingMp(true);
+    setPaymentMessage(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setPaymentMessage({ type: 'error', text: 'Iniciá sesión de nuevo para conectar Mercado Pago.' });
+        return;
+      }
+
+      const returnUrl = `${window.location.origin}/settings?tab=payments`;
+      const { data, error } = await supabase.functions.invoke('mercadopago-oauth-start', {
+        body: {
+          restaurant_id: restaurant.id,
+          return_url: returnUrl,
+          test_mode: mpUseTestCredentials,
+        },
+      });
+
+      if (error || !data?.authorization_url) {
+        throw new Error(data?.error || error?.message || 'No se pudo iniciar OAuth');
+      }
+
+      window.location.href = data.authorization_url;
+    } catch (err: any) {
+      setPaymentMessage({ type: 'error', text: err?.message || 'Error al conectar Mercado Pago.' });
+    } finally {
+      setConnectingMp(false);
     }
   };
 
@@ -679,7 +725,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                   <h2 className="text-2xl font-black tracking-tight">Medios de Pago</h2>
                 </div>
                 <p className="text-white/80 font-medium text-sm">
-                  Checkout Pro con la aplicación de Mercado Pago de este local. El cobro va 100% al restaurante; SplitMe no retiene el dinero.
+                  Marketplace SplitMe + Payment Brick. El cobro va 100% al restaurante; SplitMe no retiene el dinero.
                 </p>
               </div>
               <div className="absolute top-0 right-0 p-10 opacity-10 rotate-12">
@@ -693,11 +739,43 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                   <form onSubmit={handleSaveMpConfig} className="space-y-6 bg-gray-50/50 p-10 rounded-[2.5rem] border border-gray-100">
                     <div className="flex items-center gap-3 mb-2">
                       <CreditCard className="text-[#009EE3]" size={20} />
-                      <h3 className="text-lg font-black text-gray-900 tracking-tight">Checkout Pro — tu aplicación MP</h3>
+                      <h3 className="text-lg font-black text-gray-900 tracking-tight">Mercado Pago — Marketplace</h3>
                     </div>
 
                     <p className="text-sm text-gray-600 font-medium leading-relaxed">
-                      Creá una aplicación en Mercado Pago con la cuenta de este local y pegá acá el Public Key y el Access Token.
+                      Conectá la cuenta del restaurante con OAuth (recomendado). SplitMe cobra en nombre del local con Payment Brick; no hace falta pegar tokens manualmente.
+                    </p>
+
+                    <div className="rounded-2xl border border-[#009EE3]/20 bg-white p-5 space-y-4">
+                      {paymentConfig?.oauth_requires_reconnect && (
+                        <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-4 py-3 font-semibold">
+                          La conexión expiró o fue revocada. Volvé a conectar Mercado Pago.
+                        </p>
+                      )}
+                      {paymentConfig?.oauth_connected_at && !paymentConfig.oauth_requires_reconnect && (
+                        <p className="text-xs text-emerald-700 font-semibold flex items-center gap-2">
+                          <CheckCircle2 size={16} />
+                          Conectado {paymentConfig.user_account ? `(vendedor ${paymentConfig.user_account})` : ''} · {new Date(paymentConfig.oauth_connected_at).toLocaleDateString('es-AR')}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleConnectMercadoPago}
+                        disabled={connectingMp || savingPayment}
+                        className="w-full py-4 bg-[#009EE3] text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {connectingMp ? <Loader2 size={16} className="animate-spin" /> : <LinkIcon size={16} />}
+                        {paymentConfig?.oauth_connected_at ? 'Reconectar Mercado Pago' : 'Conectar Mercado Pago'}
+                      </button>
+                    </div>
+
+                    <details className="rounded-2xl border border-gray-200 bg-white/60 p-4">
+                      <summary className="text-xs font-black uppercase text-gray-500 cursor-pointer tracking-widest">
+                        Avanzado: credenciales manuales (legacy)
+                      </summary>
+                      <div className="mt-4 space-y-4 pt-2 border-t border-gray-100">
+                    <p className="text-sm text-gray-600 font-medium leading-relaxed">
+                      Solo si no podés usar OAuth. Pegá Public Key y Access Token de la app del restaurante.
                     </p>
 
                     {mpDraftRestored && (
@@ -810,6 +888,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         </p>
                       )}
                     </div>
+
+                      </div>
+                    </details>
 
                     {paymentMessage && (
                       <div className={`p-5 rounded-2xl flex items-center gap-3 border-2 ${

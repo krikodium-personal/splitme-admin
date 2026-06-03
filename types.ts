@@ -34,6 +34,7 @@ export interface PaymentConfig {
   oauth_connected_at?: string | null;
   token_expires_at?: string | null;
   oauth_test_mode?: boolean | null;
+  oauth_requires_reconnect?: boolean | null;
   token_cbu_test?: string | null;
   key_alias_test?: string | null;
   webhook_secret?: string | null; // Reservado; webhook de plataforma usa env MERCADOPAGO_WEBHOOK_SECRET
