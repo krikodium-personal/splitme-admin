@@ -23,6 +23,55 @@ function mpTokenPrefixPreview(value: string | null | undefined): string {
   return `${v.slice(0, MP_TOKEN_PREFIX_VISIBLE)}…`;
 }
 
+type MpFormDraft = {
+  userId: string;
+  publicKey: string;
+  accessToken: string;
+  useSandbox: boolean;
+};
+
+function mpDraftStorageKey(restaurantId: string) {
+  return `splitme_admin_mp_draft_${restaurantId}`;
+}
+
+function readMpDraft(restaurantId: string): MpFormDraft | null {
+  try {
+    const raw = sessionStorage.getItem(mpDraftStorageKey(restaurantId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<MpFormDraft>;
+    return {
+      userId: String(parsed.userId ?? ''),
+      publicKey: String(parsed.publicKey ?? ''),
+      accessToken: String(parsed.accessToken ?? ''),
+      useSandbox: Boolean(parsed.useSandbox),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeMpDraft(restaurantId: string, draft: MpFormDraft) {
+  try {
+    sessionStorage.setItem(mpDraftStorageKey(restaurantId), JSON.stringify(draft));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function clearMpDraft(restaurantId: string) {
+  try {
+    sessionStorage.removeItem(mpDraftStorageKey(restaurantId));
+  } catch {
+    /* ignore */
+  }
+}
+
+function mpDraftHasContent(draft: MpFormDraft): boolean {
+  return Boolean(
+    draft.userId.trim() || draft.publicKey.trim() || draft.accessToken.trim(),
+  );
+}
+
 const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -72,6 +121,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const [showAccessToken, setShowAccessToken] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [mpDraftRestored, setMpDraftRestored] = useState(false);
+  const mpDraftReadyRef = useRef(false);
 
   const storedMpAccessToken =
     paymentConfig?.token_cbu?.trim() || paymentConfig?.token_cbu_test?.trim() || '';
@@ -110,8 +161,25 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
     }
   }, [restaurant]);
 
+  useEffect(() => {
+    if (!restaurant?.id || !mpDraftReadyRef.current) return;
+    const draft: MpFormDraft = {
+      userId: mpUserId,
+      publicKey: mpPublicKey,
+      accessToken: mpAccessToken,
+      useSandbox: mpUseTestCredentials,
+    };
+    if (mpDraftHasContent(draft) || draft.useSandbox) {
+      writeMpDraft(restaurant.id, draft);
+    } else {
+      clearMpDraft(restaurant.id);
+      setMpDraftRestored(false);
+    }
+  }, [restaurant?.id, mpUserId, mpPublicKey, mpAccessToken, mpUseTestCredentials]);
+
   const fetchPaymentConfig = async () => {
     if (!restaurant?.id) return;
+    mpDraftReadyRef.current = false;
     try {
       // Cargar configuración de Mercado Pago
       const { data: mpData, error: mpError } = await supabase
@@ -136,6 +204,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         setMpUseTestCredentials(false);
       }
 
+      const draft = readMpDraft(restaurant.id);
+      if (draft && mpDraftHasContent(draft)) {
+        setMpUserId(draft.userId);
+        setMpPublicKey(draft.publicKey);
+        setMpAccessToken(draft.accessToken);
+        setMpUseTestCredentials(draft.useSandbox);
+        setMpDraftRestored(true);
+      } else {
+        setMpDraftRestored(false);
+      }
+
       // Cargar configuración de Transferencia (buscar por cualquier banco de la lista)
       const { data: transferData, error: transferError } = await supabase
         .from('payment_configs')
@@ -154,6 +233,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       }
     } catch (err: any) {
       console.error("Error al cargar config de pagos:", err.message || err);
+    } finally {
+      mpDraftReadyRef.current = true;
     }
   };
 
@@ -225,15 +306,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
           payload.key_alias_test = publicKey;
         }
         // Solo borrar el bucket opuesto si el usuario pegó credenciales nuevas
-        if (!preservingStoredToken) {
-          if (isAppUsr) {
-            payload.token_cbu_test = null;
-            payload.key_alias_test = null;
-          }
-          if (isTestPrefix) {
-            payload.token_cbu = null;
-            payload.key_alias = null;
-          }
+        // No borrar TEST- al pegar APP_USR (conviven: APP_USR crea preferencia, TEST- mejora sandbox).
+        if (!preservingStoredToken && isTestPrefix) {
+          payload.token_cbu = null;
+          payload.key_alias = null;
         }
       } else {
         payload.oauth_test_mode = false;
@@ -254,12 +330,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         if (error) throw error;
       }
 
+      if (restaurant?.id) clearMpDraft(restaurant.id);
+      setMpDraftRestored(false);
       await fetchPaymentConfig();
       setMpAccessToken('');
       setPaymentMessage({
         type: 'success',
         text: mpUseTestCredentials
-          ? 'Modo sandbox activado. Probá el checkout con tarjetas de prueba (sandbox.mercadopago.com.ar).'
+          ? 'Modo prueba guardado. En checkout sandbox no uses «Como usuario» con cuenta real; invitado APRO o comprador test.'
           : 'Modo producción guardado. Solo cobros con tarjetas reales.',
       });
     } catch (err: any) {
@@ -289,6 +367,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       setMpPublicKey('');
       setMpAccessToken('');
       setMpUseTestCredentials(false);
+      if (restaurant?.id) clearMpDraft(restaurant.id);
+      setMpDraftRestored(false);
       setPaymentMessage({ type: 'success', text: 'Credenciales de Mercado Pago eliminadas.' });
     } catch (err: any) {
       alert("Error al desvincular: " + (err.message || "Error desconocido"));
@@ -620,6 +700,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                       Creá una aplicación en Mercado Pago con la cuenta de este local y pegá acá el Public Key y el Access Token.
                     </p>
 
+                    {mpDraftRestored && (
+                      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 font-semibold leading-relaxed">
+                        Borrador restaurado: podés salir a buscar credenciales en MP y volver sin perder lo que cargaste. Guardá cuando termines.
+                      </p>
+                    )}
+
                     <label className="flex items-center gap-3 text-xs font-bold text-gray-600 cursor-pointer">
                       <input
                         type="checkbox"
@@ -633,8 +719,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                     {mpUseTestCredentials ? (
                       <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-xs text-amber-900 leading-relaxed space-y-2">
                         <p>
-                          <strong>Sí, usás sandbox.</strong> Pegá las credenciales <strong>APP_USR de producción</strong> de la app del restaurante
-                          (no hace falta que MP muestre TEST-). El checkout abre en <strong>sandbox.mercadopago.com.ar</strong>.
+                          <strong>Modo prueba activo.</strong> Si el vendedor es cuenta test de MP (User ID tipo 3429822713), el checkout abre en{" "}
+                          <strong>sandbox.mercadopago.com.ar</strong>. Conectá OAuth con «Modo sandbox» para guardar token <strong>TEST-</strong>, o pegá APP_USR del vendedor test.
+                          Pagá en incógnito, sin sesión real, tarjeta de prueba (titular APRO).
                         </p>
                         <p>
                           Tarjeta: 5031 7557 3453 0604 · titular <strong>APRO</strong> · DNI 12345678 · CVV 123.
