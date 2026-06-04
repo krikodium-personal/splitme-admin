@@ -1,0 +1,33 @@
+name: Version bump
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'package.json'  # evita loop cuando este workflow hace commit
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Bump patch version
+        run: npm version patch --no-git-tag-version
+
+      - name: Commit updated package.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          VERSION=$(node -p "require('./package.json').version")
+          git add package.json
+          git commit -m "chore: bump version to v${VERSION} [skip ci]"
+          git push
