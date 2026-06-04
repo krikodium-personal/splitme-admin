@@ -2,6 +2,7 @@ import "jsr:@std/dotenv/load";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   assertRestaurantPaymentAccess,
+  base64UrlEncode,
   buildMpAuthorizationUrl,
   corsHeaders,
   createOAuthState,
@@ -66,6 +67,11 @@ Deno.serve(async (req) => {
     const fallbackReturn = Deno.env.get("MERCADOPAGO_ADMIN_RETURN_URL")?.trim()
       || "http://localhost:3002/settings?tab=payments";
 
+    const codeVerifier = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
+    const codeChallenge = base64UrlEncode(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(codeVerifier))),
+    );
+
     const state = await createOAuthState(
       {
         restaurant_id,
@@ -74,11 +80,12 @@ Deno.serve(async (req) => {
         test_token: useTestToken,
         exp: Date.now() + 10 * 60 * 1000,
         nonce: crypto.randomUUID(),
+        code_verifier: codeVerifier,
       },
       stateSecret,
     );
 
-    const authorization_url = buildMpAuthorizationUrl(clientId, redirectUri, state);
+    const authorization_url = buildMpAuthorizationUrl(clientId, redirectUri, state, { codeChallenge });
 
     return new Response(JSON.stringify({
       authorization_url,

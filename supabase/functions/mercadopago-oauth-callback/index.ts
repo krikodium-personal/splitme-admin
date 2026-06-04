@@ -6,6 +6,7 @@ import {
   parseOAuthState,
   refreshMpOAuthToken,
 } from "../_shared/mp-oauth.ts";
+import { encryptSecret } from "../_shared/mp-crypto.ts";
 
 function redirectWithMessage(returnUrl: string, params: Record<string, string>): Response {
   const url = new URL(returnUrl);
@@ -42,7 +43,7 @@ Deno.serve(async (req) => {
     const returnUrl = statePayload.return_url || fallbackReturn;
     const primaryIsTest = statePayload.test_token;
 
-    const tokenData = await exchangeMpOAuthCode(code, redirectUri, primaryIsTest);
+    const tokenData = await exchangeMpOAuthCode(code, redirectUri, primaryIsTest, statePayload.code_verifier);
 
     if (primaryIsTest && !tokenData.access_token.startsWith("TEST-")) {
       console.warn(
@@ -88,15 +89,21 @@ Deno.serve(async (req) => {
       ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
       : null;
 
+    const [encProdToken, encTestToken, encRefreshToken] = await Promise.all([
+      encryptSecret(prodAccessToken),
+      encryptSecret(testAccessToken),
+      encryptSecret(tokenData.refresh_token || null),
+    ]);
+
     const payload = {
       restaurant_id: statePayload.restaurant_id,
-      token_cbu: prodAccessToken,
+      token_cbu: encProdToken,
       key_alias: prodPublicKey,
-      token_cbu_test: testAccessToken,
+      token_cbu_test: encTestToken,
       key_alias_test: testPublicKey,
       oauth_test_mode: primaryIsTest,
       user_account: tokenData.user_id ? String(tokenData.user_id) : null,
-      refresh_token: tokenData.refresh_token || null,
+      refresh_token: encRefreshToken,
       oauth_connected_at: new Date().toISOString(),
       token_expires_at: expiresAt,
       provider: "mercadopago",

@@ -7,7 +7,7 @@ export const corsHeaders = {
   "Access-Control-Max-Age": "86400",
 };
 
-function base64UrlEncode(data: Uint8Array | string): string {
+export function base64UrlEncode(data: Uint8Array | string): string {
   const bytes = typeof data === "string" ? encoder.encode(data) : data;
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -39,6 +39,7 @@ export type OAuthStatePayload = {
   test_token: boolean;
   exp: number;
   nonce: string;
+  code_verifier: string;
 };
 
 export async function createOAuthState(
@@ -71,6 +72,7 @@ export async function parseOAuthState(
   if (!payload.restaurant_id || !payload.user_id || !payload.return_url || !payload.exp) {
     throw new Error("Estado OAuth incompleto");
   }
+  if (!payload.code_verifier) throw new Error("Estado OAuth sin code_verifier (PKCE)");
   if (Date.now() > payload.exp) throw new Error("Estado OAuth expirado");
 
   return payload;
@@ -94,6 +96,7 @@ export async function exchangeMpOAuthCode(
   code: string,
   redirectUri: string,
   testToken: boolean,
+  codeVerifier?: string,
 ): Promise<{
   access_token: string;
   refresh_token?: string;
@@ -112,6 +115,7 @@ export async function exchangeMpOAuthCode(
   };
   // test_token=true → sandbox TEST credentials for Checkout Pro sandbox_init_point.
   if (testToken) body.test_token = "true";
+  if (codeVerifier) body.code_verifier = codeVerifier;
 
   const response = await fetch("https://api.mercadopago.com/oauth/token", {
     method: "POST",
@@ -185,14 +189,24 @@ export async function assertRestaurantPaymentAccess(
   throw new Error("No tenés permiso para configurar pagos de este restaurante");
 }
 
-export function buildMpAuthorizationUrl(clientId: string, redirectUri: string, state: string): string {
+export function buildMpAuthorizationUrl(
+  clientId: string,
+  redirectUri: string,
+  state: string,
+  pkce?: { codeChallenge: string },
+): string {
   const params = new URLSearchParams({
     response_type: "code",
     client_id: clientId,
     redirect_uri: redirectUri,
     state,
     platform_id: "mp",
+    scope: "offline_access",
   });
+  if (pkce?.codeChallenge) {
+    params.set("code_challenge", pkce.codeChallenge);
+    params.set("code_challenge_method", "S256");
+  }
   return `https://auth.mercadopago.com.ar/authorization?${params.toString()}`;
 }
 
