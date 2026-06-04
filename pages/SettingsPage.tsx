@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   Store, AlertCircle, Loader2, Camera, UploadCloud, 
   Save, MapPin, CheckCircle2, CreditCard, Link as LinkIcon, Zap,
-  ShieldCheck, ExternalLink, Trash2
+  ShieldCheck, ExternalLink, Trash2, Key
 } from 'lucide-react';
 import { Restaurant, setGlobalRestaurant, PaymentConfig } from '../types';
 import { supabase, isSupabaseConfigured } from '../supabase';
