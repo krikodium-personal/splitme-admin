@@ -58,6 +58,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [connectingMp, setConnectingMp] = useState(false);
+  const [mpConnectTestMode, setMpConnectTestMode] = useState(true);
 
   // Estados para Transferencia
   const [transferConfig, setTransferConfig] = useState<PaymentConfig | null>(null);
@@ -118,6 +119,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       
       if (mpError) throw mpError;
       setPaymentConfig(mpData ?? null);
+      if (mpData?.oauth_test_mode === true) {
+        setMpConnectTestMode(true);
+      } else if (mpData?.oauth_test_mode === false) {
+        setMpConnectTestMode(false);
+      }
 
       // Cargar configuración de Transferencia (buscar por cualquier banco de la lista)
       const { data: transferData, error: transferError } = await supabase
@@ -156,7 +162,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         body: {
           restaurant_id: restaurant.id,
           return_url: returnUrl,
-          test_mode: false,
+          test_mode: mpConnectTestMode,
         },
       });
 
@@ -513,8 +519,21 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                     </div>
 
                     <p className="text-sm text-gray-600 font-medium leading-relaxed">
-                      Conectá la cuenta real del restaurante con OAuth. SplitMe cobra en nombre del local con Payment Brick; no hace falta pegar tokens.
+                      Conectá el vendedor con OAuth. Para desarrollo, activá «Modo prueba» y autorizá con el usuario <strong>vendedor</strong> de prueba de tu app en el panel de MP.
                     </p>
+
+                    <label className="flex items-start gap-3 text-xs font-semibold text-gray-700 cursor-pointer rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={mpConnectTestMode}
+                        onChange={(e) => setMpConnectTestMode(e.target.checked)}
+                        className="mt-0.5 rounded border-gray-300 text-[#009EE3] focus:ring-[#009EE3]"
+                      />
+                      <span className="leading-relaxed">
+                        <strong>Modo prueba (sandbox)</strong> — OAuth guarda tokens <strong>TEST-</strong> del vendedor test.
+                        Desactivá solo cuando conectes la cuenta real del restaurante.
+                      </span>
+                    </label>
 
                     <div className="rounded-2xl border border-[#009EE3]/20 bg-white p-5 space-y-4">
                       {paymentConfig?.oauth_requires_reconnect && (
@@ -522,9 +541,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                           La conexión expiró o fue revocada. Volvé a conectar Mercado Pago.
                         </p>
                       )}
-                      {paymentConfig?.oauth_test_mode && (
-                        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 font-semibold leading-relaxed">
-                          Esta conexión quedó en modo sandbox (TEST). Para Payment Brick, usá «Reconectar» con la cuenta real del restaurante en mercadopago.com.ar (no con usuario de prueba del panel).
+                      {paymentConfig?.oauth_test_mode && paymentConfig?.oauth_connected_at && (
+                        <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 font-semibold leading-relaxed">
+                          Modo prueba activo. Vendedor {paymentConfig.user_account ? `${paymentConfig.user_account}` : 'conectado'}.
+                          En invitados pagá con tarjetas de prueba (titular APRO).
                         </p>
                       )}
                       {paymentConfig?.oauth_connected_at && !paymentConfig.oauth_requires_reconnect && (
@@ -540,7 +560,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         className="w-full py-4 bg-[#009EE3] text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
                       >
                         {connectingMp ? <Loader2 size={16} className="animate-spin" /> : <LinkIcon size={16} />}
-                        {paymentConfig?.oauth_connected_at ? 'Reconectar Mercado Pago' : 'Conectar Mercado Pago'}
+                        {paymentConfig?.oauth_connected_at
+                          ? (mpConnectTestMode ? 'Reconectar (modo prueba)' : 'Reconectar Mercado Pago')
+                          : (mpConnectTestMode ? 'Conectar Mercado Pago (modo prueba)' : 'Conectar Mercado Pago')}
                       </button>
                     </div>
 
@@ -601,11 +623,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                     
                     <ol className="space-y-4">
                       {[
-                        "Entrá a mercadopago.com.ar con la cuenta real del restaurante (no con usuario de prueba del panel).",
-                        "Hacé clic en «Conectar Mercado Pago» y autorizá a SplitMe cuando MP lo pida.",
-                        "Para probar cobros: en la app de invitados pagá con tarjetas de prueba de MP (flujo Make test purchase / Brick).",
-                        "Si antes conectaste con un vendedor test (User ID tipo 3429822713), usá «Reconectar» con la cuenta real.",
-                        "SplitMe no retiene el dinero del pedido; el fee de plataforma se cobra aparte (mensual)."
+                        "En Developers → Cuentas de prueba: creá o usá un usuario tipo Vendedor (Seller) de tu integración.",
+                        "Activá «Modo prueba (sandbox)» y hacé clic en Conectar. En MP iniciá sesión con ese vendedor test (User ID + contraseña del panel, no tu cuenta real).",
+                        "SplitMe (plataforma) debe tener credenciales TEST en Supabase (public key TEST-…).",
+                        "En la app de invitados: Individual Share → Mercado Pago → tarjeta de prueba (APRO).",
+                        "Para producción después: desactivá modo prueba y reconectá con la cuenta real del restaurante."
                       ].map((step, i) => (
                         <li key={i} className="flex gap-4 items-start">
                           <span className="w-6 h-6 bg-white rounded-full flex items-center justify-center text-[10px] font-black text-[#009EE3] shadow-sm shrink-0 mt-0.5">{i+1}</span>
