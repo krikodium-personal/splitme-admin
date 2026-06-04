@@ -4,72 +4,13 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   Store, AlertCircle, Loader2, Camera, UploadCloud, 
   Save, MapPin, CheckCircle2, CreditCard, Link as LinkIcon, Zap,
-  Key, ShieldCheck, ExternalLink, User, Trash2, Eye, EyeOff
+  ShieldCheck, ExternalLink, Trash2
 } from 'lucide-react';
 import { Restaurant, setGlobalRestaurant, PaymentConfig } from '../types';
 import { supabase, isSupabaseConfigured } from '../supabase';
 
 interface SettingsPageProps {
   restaurant: Restaurant | null;
-}
-
-/** Caracteres visibles del access token guardado (prefijo APP_USR- / TEST- + inicio del id). */
-const MP_TOKEN_PREFIX_VISIBLE = 28;
-
-function mpTokenPrefixPreview(value: string | null | undefined): string {
-  const v = value?.trim() || '';
-  if (!v) return '';
-  if (v.length <= MP_TOKEN_PREFIX_VISIBLE) return v;
-  return `${v.slice(0, MP_TOKEN_PREFIX_VISIBLE)}…`;
-}
-
-type MpFormDraft = {
-  userId: string;
-  publicKey: string;
-  accessToken: string;
-  useSandbox: boolean;
-};
-
-function mpDraftStorageKey(restaurantId: string) {
-  return `splitme_admin_mp_draft_${restaurantId}`;
-}
-
-function readMpDraft(restaurantId: string): MpFormDraft | null {
-  try {
-    const raw = sessionStorage.getItem(mpDraftStorageKey(restaurantId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<MpFormDraft>;
-    return {
-      userId: String(parsed.userId ?? ''),
-      publicKey: String(parsed.publicKey ?? ''),
-      accessToken: String(parsed.accessToken ?? ''),
-      useSandbox: Boolean(parsed.useSandbox),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeMpDraft(restaurantId: string, draft: MpFormDraft) {
-  try {
-    sessionStorage.setItem(mpDraftStorageKey(restaurantId), JSON.stringify(draft));
-  } catch {
-    /* quota / private mode */
-  }
-}
-
-function clearMpDraft(restaurantId: string) {
-  try {
-    sessionStorage.removeItem(mpDraftStorageKey(restaurantId));
-  } catch {
-    /* ignore */
-  }
-}
-
-function mpDraftHasContent(draft: MpFormDraft): boolean {
-  return Boolean(
-    draft.userId.trim() || draft.publicKey.trim() || draft.accessToken.trim(),
-  );
 }
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
@@ -112,22 +53,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const [restMessage, setRestMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
-  // Estados para Mercado Pago (Checkout Pro — app propia del restaurante)
+  // Estados para Mercado Pago (OAuth marketplace + Payment Brick)
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
-  const [mpUserId, setMpUserId] = useState('');
-  const [mpPublicKey, setMpPublicKey] = useState('');
-  const [mpAccessToken, setMpAccessToken] = useState('');
-  const [mpUseTestCredentials, setMpUseTestCredentials] = useState(false);
-  const [showAccessToken, setShowAccessToken] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  const [mpDraftRestored, setMpDraftRestored] = useState(false);
   const [connectingMp, setConnectingMp] = useState(false);
-  const mpDraftReadyRef = useRef(false);
-
-  const storedMpAccessToken =
-    paymentConfig?.token_cbu?.trim() || paymentConfig?.token_cbu_test?.trim() || '';
-  const hasStoredMpAccessToken = storedMpAccessToken.length > 0;
 
   // Estados para Transferencia
   const [transferConfig, setTransferConfig] = useState<PaymentConfig | null>(null);
@@ -175,25 +105,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
     }
   }, [searchParams]);
 
-  useEffect(() => {
-    if (!restaurant?.id || !mpDraftReadyRef.current) return;
-    const draft: MpFormDraft = {
-      userId: mpUserId,
-      publicKey: mpPublicKey,
-      accessToken: mpAccessToken,
-      useSandbox: mpUseTestCredentials,
-    };
-    if (mpDraftHasContent(draft) || draft.useSandbox) {
-      writeMpDraft(restaurant.id, draft);
-    } else {
-      clearMpDraft(restaurant.id);
-      setMpDraftRestored(false);
-    }
-  }, [restaurant?.id, mpUserId, mpPublicKey, mpAccessToken, mpUseTestCredentials]);
-
   const fetchPaymentConfig = async () => {
     if (!restaurant?.id) return;
-    mpDraftReadyRef.current = false;
     try {
       // Cargar configuración de Mercado Pago
       const { data: mpData, error: mpError } = await supabase
@@ -205,29 +118,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       
       if (mpError) throw mpError;
       setPaymentConfig(mpData ?? null);
-      if (mpData) {
-        const useSandbox = mpData.oauth_test_mode === true;
-        setMpUseTestCredentials(useSandbox);
-        setMpUserId(mpData.user_account || '');
-        setMpPublicKey(mpData.key_alias_test || mpData.key_alias || '');
-        setMpAccessToken('');
-      } else {
-        setMpUserId('');
-        setMpPublicKey('');
-        setMpAccessToken('');
-        setMpUseTestCredentials(false);
-      }
-
-      const draft = readMpDraft(restaurant.id);
-      if (draft && mpDraftHasContent(draft)) {
-        setMpUserId(draft.userId);
-        setMpPublicKey(draft.publicKey);
-        setMpAccessToken(draft.accessToken);
-        setMpUseTestCredentials(draft.useSandbox);
-        setMpDraftRestored(true);
-      } else {
-        setMpDraftRestored(false);
-      }
 
       // Cargar configuración de Transferencia (buscar por cualquier banco de la lista)
       const { data: transferData, error: transferError } = await supabase
@@ -247,8 +137,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       }
     } catch (err: any) {
       console.error("Error al cargar config de pagos:", err.message || err);
-    } finally {
-      mpDraftReadyRef.current = true;
     }
   };
 
@@ -268,7 +156,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         body: {
           restaurant_id: restaurant.id,
           return_url: returnUrl,
-          test_mode: mpUseTestCredentials,
+          test_mode: false,
         },
       });
 
@@ -281,118 +169,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       setPaymentMessage({ type: 'error', text: err?.message || 'Error al conectar Mercado Pago.' });
     } finally {
       setConnectingMp(false);
-    }
-  };
-
-  const handleSaveMpConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!restaurant?.id) return;
-
-    const publicKey = mpPublicKey.trim();
-    let accessToken = mpAccessToken.trim();
-    const userId = mpUserId.trim();
-
-    if (!publicKey) {
-      setPaymentMessage({ type: 'error', text: 'Completá el Public Key de tu aplicación de Mercado Pago.' });
-      return;
-    }
-
-    const preservingStoredToken = !mpAccessToken.trim();
-    if (preservingStoredToken && paymentConfig) {
-      accessToken = paymentConfig.token_cbu_test || paymentConfig.token_cbu || '';
-    }
-    if (!accessToken) {
-      setPaymentMessage({ type: 'error', text: 'Completá el Access Token de tu aplicación de Mercado Pago.' });
-      return;
-    }
-
-    const isTestPrefix = publicKey.startsWith('TEST-') && accessToken.startsWith('TEST-');
-    const isAppUsr = publicKey.startsWith('APP_USR-') && accessToken.startsWith('APP_USR-');
-
-    if (mpUseTestCredentials) {
-      if (!isTestPrefix && !isAppUsr) {
-        setPaymentMessage({
-          type: 'error',
-          text: 'En modo sandbox usá credenciales APP_USR de producción de tu app (lo habitual) o TEST- si tu app las muestra.',
-        });
-        return;
-      }
-    } else if (!isAppUsr) {
-      setPaymentMessage({
-        type: 'error',
-        text: 'Sin modo sandbox, usá credenciales APP_USR de producción de tu app.',
-      });
-      return;
-    }
-
-    setSavingPayment(true);
-    setPaymentMessage(null);
-
-    try {
-      const base = {
-        restaurant_id: restaurant.id,
-        provider: 'mercadopago',
-        user_account: userId || null,
-        oauth_connected_at: null,
-        refresh_token: null,
-        token_expires_at: null,
-        is_active: true,
-      };
-
-      const payload: Record<string, unknown> = { ...base };
-
-      if (mpUseTestCredentials) {
-        payload.oauth_test_mode = true;
-        if (isAppUsr) {
-          payload.token_cbu = accessToken;
-          payload.key_alias = publicKey;
-        }
-        if (isTestPrefix) {
-          payload.token_cbu_test = accessToken;
-          payload.key_alias_test = publicKey;
-        }
-        // Solo borrar el bucket opuesto si el usuario pegó credenciales nuevas
-        // No borrar TEST- al pegar APP_USR (conviven: APP_USR crea preferencia, TEST- mejora sandbox).
-        if (!preservingStoredToken && isTestPrefix) {
-          payload.token_cbu = null;
-          payload.key_alias = null;
-        }
-      } else {
-        payload.oauth_test_mode = false;
-        payload.token_cbu = accessToken;
-        payload.key_alias = publicKey;
-        payload.token_cbu_test = null;
-        payload.key_alias_test = null;
-      }
-
-      if (paymentConfig?.id) {
-        const { error } = await supabase
-          .from('payment_configs')
-          .update(payload)
-          .eq('id', paymentConfig.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('payment_configs').insert(payload);
-        if (error) throw error;
-      }
-
-      if (restaurant?.id) clearMpDraft(restaurant.id);
-      setMpDraftRestored(false);
-      await fetchPaymentConfig();
-      setMpAccessToken('');
-      setPaymentMessage({
-        type: 'success',
-        text: mpUseTestCredentials
-          ? 'Modo prueba guardado. En checkout sandbox no uses «Como usuario» con cuenta real; invitado APRO o comprador test.'
-          : 'Modo producción guardado. Solo cobros con tarjetas reales.',
-      });
-    } catch (err: any) {
-      setPaymentMessage({
-        type: 'error',
-        text: err?.message || 'No se pudieron guardar las credenciales.',
-      });
-    } finally {
-      setSavingPayment(false);
     }
   };
 
@@ -409,12 +185,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       
       if (error) throw error;
       setPaymentConfig(null);
-      setMpUserId('');
-      setMpPublicKey('');
-      setMpAccessToken('');
-      setMpUseTestCredentials(false);
-      if (restaurant?.id) clearMpDraft(restaurant.id);
-      setMpDraftRestored(false);
       setPaymentMessage({ type: 'success', text: 'Credenciales de Mercado Pago eliminadas.' });
     } catch (err: any) {
       alert("Error al desvincular: " + (err.message || "Error desconocido"));
@@ -736,20 +506,25 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
            <div className="p-12 space-y-12">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
                 <div className="lg:col-span-7 space-y-8">
-                  <form onSubmit={handleSaveMpConfig} className="space-y-6 bg-gray-50/50 p-10 rounded-[2.5rem] border border-gray-100">
+                  <div className="space-y-6 bg-gray-50/50 p-10 rounded-[2.5rem] border border-gray-100">
                     <div className="flex items-center gap-3 mb-2">
                       <CreditCard className="text-[#009EE3]" size={20} />
                       <h3 className="text-lg font-black text-gray-900 tracking-tight">Mercado Pago — Marketplace</h3>
                     </div>
 
                     <p className="text-sm text-gray-600 font-medium leading-relaxed">
-                      Conectá la cuenta del restaurante con OAuth (recomendado). SplitMe cobra en nombre del local con Payment Brick; no hace falta pegar tokens manualmente.
+                      Conectá la cuenta real del restaurante con OAuth. SplitMe cobra en nombre del local con Payment Brick; no hace falta pegar tokens.
                     </p>
 
                     <div className="rounded-2xl border border-[#009EE3]/20 bg-white p-5 space-y-4">
                       {paymentConfig?.oauth_requires_reconnect && (
                         <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-4 py-3 font-semibold">
                           La conexión expiró o fue revocada. Volvé a conectar Mercado Pago.
+                        </p>
+                      )}
+                      {paymentConfig?.oauth_test_mode && (
+                        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 font-semibold leading-relaxed">
+                          Esta conexión quedó en modo sandbox (TEST). Para Payment Brick, usá «Reconectar» con la cuenta real del restaurante en mercadopago.com.ar (no con usuario de prueba del panel).
                         </p>
                       )}
                       {paymentConfig?.oauth_connected_at && !paymentConfig.oauth_requires_reconnect && (
@@ -769,129 +544,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                       </button>
                     </div>
 
-                    <details className="rounded-2xl border border-gray-200 bg-white/60 p-4">
-                      <summary className="text-xs font-black uppercase text-gray-500 cursor-pointer tracking-widest">
-                        Avanzado: credenciales manuales (legacy)
-                      </summary>
-                      <div className="mt-4 space-y-4 pt-2 border-t border-gray-100">
-                    <p className="text-sm text-gray-600 font-medium leading-relaxed">
-                      Solo si no podés usar OAuth. Pegá Public Key y Access Token de la app del restaurante.
-                    </p>
-
-                    {mpDraftRestored && (
-                      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 font-semibold leading-relaxed">
-                        Borrador restaurado: podés salir a buscar credenciales en MP y volver sin perder lo que cargaste. Guardá cuando termines.
-                      </p>
-                    )}
-
-                    <label className="flex items-center gap-3 text-xs font-bold text-gray-600 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={mpUseTestCredentials}
-                        onChange={(e) => setMpUseTestCredentials(e.target.checked)}
-                        className="rounded border-gray-300 text-[#009EE3] focus:ring-[#009EE3]"
-                      />
-                      Modo sandbox — probar con tarjetas de prueba
-                    </label>
-
-                    {mpUseTestCredentials ? (
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-xs text-amber-900 leading-relaxed space-y-2">
-                        <p>
-                          <strong>Modo prueba activo.</strong> Si el vendedor es cuenta test de MP (User ID tipo 3429822713), el checkout abre en{" "}
-                          <strong>sandbox.mercadopago.com.ar</strong>. Conectá OAuth con «Modo sandbox» para guardar token <strong>TEST-</strong>, o pegá APP_USR del vendedor test.
-                          Pagá en incógnito, sin sesión real, tarjeta de prueba (titular APRO).
-                        </p>
-                        <p>
-                          Tarjeta: 5031 7557 3453 0604 · titular <strong>APRO</strong> · DNI 12345678 · CVV 123.
-                          Pagá como <strong>invitado</strong> (sin tu cuenta real de MP). Si ves «Como usuario» en el checkout, cerrá sesión en Mercado Pago o usá incógnito.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-blue-100 bg-blue-50/80 p-4 text-xs text-blue-900 leading-relaxed">
-                        <strong>Modo producción.</strong> Solo tarjetas reales. Para pruebas, activá «Modo sandbox» arriba.
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">MP User ID (opcional)</label>
-                      <div className="relative">
-                        <User size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                          value={mpUserId}
-                          onChange={(e) => setMpUserId(e.target.value.replace(/\D/g, ''))}
-                          placeholder="Ej: 3110331459"
-                          className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Public Key *</label>
-                      <div className="relative">
-                        <Key size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                          required
-                          value={mpPublicKey}
-                          onChange={(e) => setMpPublicKey(e.target.value)}
-                          placeholder="APP_USR-... (producción de tu app)"
-                          className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-5 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Access Token *</label>
-                      {hasStoredMpAccessToken && !mpAccessToken && (
-                        <div
-                          className="flex items-stretch rounded-2xl border-2 border-emerald-100 bg-emerald-50/60 overflow-hidden"
-                          aria-label="Access token guardado"
-                        >
-                          <span className="font-mono text-sm font-bold text-emerald-900 px-4 py-3.5 shrink-0 border-r border-emerald-100/80">
-                            {mpTokenPrefixPreview(storedMpAccessToken)}
-                          </span>
-                          <span className="font-mono text-sm text-emerald-700/50 tracking-[0.2em] px-4 py-3.5 select-none">
-                            ••••••••••••••••
-                          </span>
-                        </div>
-                      )}
-                      <div className="relative">
-                        <ShieldCheck size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                          required={!hasStoredMpAccessToken}
-                          type={showAccessToken ? 'text' : 'password'}
-                          value={mpAccessToken}
-                          onChange={(e) => setMpAccessToken(e.target.value)}
-                          placeholder={
-                            hasStoredMpAccessToken
-                              ? 'Opcional: pegá un token nuevo para reemplazarlo'
-                              : 'APP_USR-... (producción de tu app)'
-                          }
-                          className="w-full bg-white border-2 border-transparent rounded-2xl py-5 pl-14 pr-14 font-bold text-gray-900 shadow-sm focus:ring-2 focus:ring-[#009EE3] outline-none transition-all"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowAccessToken(!showAccessToken)}
-                          className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#009EE3]"
-                        >
-                          {showAccessToken ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                      </div>
-                      {hasStoredMpAccessToken && !mpAccessToken && (
-                        <p className="text-[11px] text-emerald-700 ml-1 font-semibold flex items-center gap-1.5">
-                          <CheckCircle2 size={14} />
-                          Token guardado. Dejá el campo de abajo vacío para conservarlo o pegá uno nuevo para reemplazarlo.
-                        </p>
-                      )}
-                      {paymentConfig && !hasStoredMpAccessToken && (
-                        <p className="text-[11px] text-amber-700 ml-1">
-                          No hay access token guardado. Pegalo y hacé clic en «Guardar credenciales».
-                        </p>
-                      )}
-                    </div>
-
-                      </div>
-                    </details>
-
                     {paymentMessage && (
                       <div className={`p-5 rounded-2xl flex items-center gap-3 border-2 ${
                         paymentMessage.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-rose-50 border-rose-100 text-rose-700'
@@ -901,8 +553,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                       </div>
                     )}
 
-                    <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
-                      {paymentConfig && (
+                    {paymentConfig && (
+                      <div className="pt-2">
                         <button
                           type="button"
                           onClick={handleDisconnectMP}
@@ -911,22 +563,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         >
                           <Trash2 size={14} /> Eliminar credenciales
                         </button>
-                      )}
-                      <div className="flex-1" />
-                      <button
-                        type="submit"
-                        disabled={savingPayment}
-                        className="px-10 py-5 bg-[#009EE3] text-white rounded-2xl font-black shadow-xl shadow-blue-100 hover:bg-[#0089C7] transition-all flex items-center gap-3 disabled:opacity-50 uppercase tracking-widest text-xs active:scale-95"
-                      >
-                        {savingPayment ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-                        {savingPayment ? 'Guardando...' : paymentConfig ? 'Actualizar credenciales' : 'Guardar credenciales'}
-                      </button>
-                    </div>
-                  </form>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="bg-white p-8 rounded-[2.5rem] border border-gray-100 flex flex-col items-center text-center gap-4">
                     <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center ${
-                      paymentConfig?.token_cbu || paymentConfig?.token_cbu_test
+                      paymentConfig?.oauth_connected_at && !paymentConfig?.oauth_requires_reconnect
                         ? 'bg-emerald-50 text-emerald-500'
                         : 'bg-gray-50 text-gray-300'
                     }`}>
@@ -935,11 +578,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                     <div>
                       <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-1">Estado de conexión</p>
                       <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
-                        paymentConfig?.token_cbu || paymentConfig?.token_cbu_test
+                        paymentConfig?.oauth_connected_at && !paymentConfig?.oauth_requires_reconnect
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                           : 'bg-gray-50 text-gray-500 border-gray-100'
                       }`}>
-                        {paymentConfig?.token_cbu || paymentConfig?.token_cbu_test ? 'Vinculado y activo' : 'Sin configurar'}
+                        {paymentConfig?.oauth_connected_at && !paymentConfig?.oauth_requires_reconnect
+                          ? 'Vinculado y activo'
+                          : 'Sin configurar'}
                       </span>
                     </div>
                   </div>
@@ -956,12 +601,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                     
                     <ol className="space-y-4">
                       {[
-                        "Entrá a mercadopago.com.ar con la cuenta real del restaurante (no con usuario TESTUSER).",
-                        "En Developers → Crear aplicación: Pagos online, Con un desarrollo propio.",
-                        "Paso 3: elegí Checkout Pro (no Bricks ni API).",
-                        "En Credenciales de producción copiá Public Key y Access Token (APP_USR) y pegalos en el formulario.",
-                        "Para probar: activá «Modo sandbox», cargá APP_USR de tu app y pagá con tarjeta de prueba en sandbox.mercadopago.com.ar.",
-                        "SplitMe no retiene el dinero; el fee de plataforma se cobra aparte (mensual)."
+                        "Entrá a mercadopago.com.ar con la cuenta real del restaurante (no con usuario de prueba del panel).",
+                        "Hacé clic en «Conectar Mercado Pago» y autorizá a SplitMe cuando MP lo pida.",
+                        "Para probar cobros: en la app de invitados pagá con tarjetas de prueba de MP (flujo Make test purchase / Brick).",
+                        "Si antes conectaste con un vendedor test (User ID tipo 3429822713), usá «Reconectar» con la cuenta real.",
+                        "SplitMe no retiene el dinero del pedido; el fee de plataforma se cobra aparte (mensual)."
                       ].map((step, i) => (
                         <li key={i} className="flex gap-4 items-start">
                           <span className="w-6 h-6 bg-white rounded-full flex items-center justify-center text-[10px] font-black text-[#009EE3] shadow-sm shrink-0 mt-0.5">{i+1}</span>
@@ -971,16 +615,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                     </ol>
 
                     <div className="rounded-xl border border-indigo-100 bg-white p-4 space-y-2 text-[11px] text-gray-600">
-                      <p className="font-black uppercase text-[10px] text-gray-400 tracking-widest">Sandbox — tarjetas de prueba</p>
-                      <p>Mastercard aprobada: <code className="font-mono text-[10px]">5031 7557 3453 0604</code> · CVV <code className="font-mono">123</code> · vencimiento futuro · DNI <code className="font-mono">12345678</code></p>
-                      <p>Pagá con el usuario comprador de prueba o como invitado con esa tarjeta.</p>
+                      <p className="font-black uppercase text-[10px] text-gray-400 tracking-widest">Tarjetas de prueba (Brick)</p>
+                      <p>Mastercard aprobada: <code className="font-mono text-[10px]">5031 7557 3453 0604</code> · CVV <code className="font-mono">123</code> · vencimiento futuro · titular <code className="font-mono">APRO</code></p>
                       <a
-                        href="https://www.mercadopago.com.ar/developers/es/docs/checkout-pro/add-integration-test/test-cards"
+                        href="https://www.mercadopago.com.ar/developers/es/docs/checkout-bricks/integration-test/test-payment-flow"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-[#009EE3] font-bold hover:underline"
                       >
-                        <ExternalLink size={12} /> Ver tarjetas de prueba en MP
+                        <ExternalLink size={12} /> Flujo de prueba Payment Brick (MP)
                       </a>
                     </div>
 
