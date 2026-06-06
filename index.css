@@ -1,4 +1,8 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+
+@source "./App.tsx";
+@source "./pages/**/*.tsx";
+@source "./components/**/*.tsx";
 
 /* Animaciones usadas fuera del bundle de Tailwind (Login, etc.) */
 @keyframes shake {

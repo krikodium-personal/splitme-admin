@@ -298,10 +298,11 @@ const OrderGroupCard: React.FC<{
   onUpdateBatchStatus: (batchId: string, newStatus: string) => void,
   onRemoveOrderItem?: (orderItemId: string) => Promise<void>,
   onMarkGuestAsPaid: (guestId: string) => void,
+  onMarkChargeAsPaid: (chargeId: string) => void,
   markingGuestAsPaid: string | null,
   forceExpanded?: boolean,
   isClosed?: boolean
-}> = ({ order, onCloseMesa, onUpdateBatchStatus, onRemoveOrderItem, onMarkGuestAsPaid, markingGuestAsPaid, forceExpanded = false, isClosed: propIsClosed = false }) => {
+}> = ({ order, onCloseMesa, onUpdateBatchStatus, onRemoveOrderItem, onMarkGuestAsPaid, onMarkChargeAsPaid, markingGuestAsPaid, forceExpanded = false, isClosed: propIsClosed = false }) => {
   // Inicializamos colapsado por defecto, a menos que se fuerce la expansión
   const [isCollapsed, setIsCollapsed] = useState(!forceExpanded);
   const [copiedPaymentId, setCopiedPaymentId] = useState<string | null>(null);
@@ -516,47 +517,96 @@ const OrderGroupCard: React.FC<{
             </div>
           </div>
 
-          {/* Detalle de división de pago por comensal */}
-          {order.order_guests?.length > 0 && (() => {
-            // Solo mostrar comensales con división de pago > $0 (no mostrar los de $0)
-            const guestsToShow = order.order_guests.filter((g: any) => (Number(g.individual_amount) || 0) > 0);
+          {/* Detalle de pagos registrados y cargos pendientes por comensal */}
+          {(order.order_guests?.length > 0 || order.orderPayments?.length > 0 || order.orderGuestCharges?.length > 0) && (() => {
+            const guests = order.order_guests || [];
+            const payments = [...(order.orderPayments || [])]
+              .filter((p: any) => (Number(p.amount) || Number(p.total_amount) || 0) > 0)
+              .sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+            const pendingCharges = [...(order.orderGuestCharges || [])]
+              .filter((charge: any) => charge.status === 'pending' && (Number(charge.amount) || 0) > 0)
+              .sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+
+            const guestById = new Map(guests.map((guest: any) => [guest.id, guest]));
+            const guestsWithRegisteredPayments = new Set(payments.map((payment: any) => payment.guest_id).filter(Boolean));
+            const guestsWithPendingCharges = new Set(pendingCharges.map((charge: any) => charge.guest_id).filter(Boolean));
+            const guestsWithoutRegisteredPayments = guests.filter((guest: any) =>
+              (Number(guest.individual_amount) || 0) > 0 &&
+              !guestsWithRegisteredPayments.has(guest.id) &&
+              (guest.paid === true || !guestsWithPendingCharges.has(guest.id))
+            );
+
+            const rowsToShow = [
+              ...payments.map((payment: any, index: number) => {
+                const guest = guestById.get(payment.guest_id) || null;
+                const amount = Number(payment.amount) || Number(payment.total_amount) || 0;
+                return {
+                  id: `payment-${payment.id || index}`,
+                  type: 'payment',
+                  guest,
+                  guestId: payment.guest_id,
+                  name: guest?.name || payment.guest_name || 'Comensal',
+                  amount,
+                  paymentMethod: (payment.payment_method || guest?.payment_method || 'mercadopago')?.toLowerCase(),
+                  paymentId: payment.payment_id || payment.external_reference || payment.mp_payment_id || payment.id || null,
+                  isPaid: true,
+                  canMarkPaid: false
+                };
+              }),
+              ...pendingCharges.map((charge: any, index: number) => {
+                const guest = guestById.get(charge.guest_id) || null;
+                return {
+                  id: `charge-${charge.id || index}`,
+                  type: 'charge',
+                  chargeId: charge.id,
+                  guest,
+                  guestId: charge.guest_id,
+                  name: guest?.name || 'Comensal',
+                  amount: Number(charge.amount) || 0,
+                  paymentMethod: (charge.payment_method || guest?.payment_method || null)?.toLowerCase(),
+                  paymentId: charge.payment_id || null,
+                  isPaid: false,
+                  canMarkPaid: false
+                };
+              }),
+              ...guestsWithoutRegisteredPayments.map((guest: any) => ({
+                id: `guest-${guest.id}`,
+                  type: 'guest',
+                  chargeId: null,
+                  guest,
+                  guestId: guest.id,
+                name: guest.name || 'Sin nombre',
+                amount: Number(guest.individual_amount) || 0,
+                paymentMethod: guest.payment_method?.toLowerCase() || null,
+                paymentId: guest.payment_id || null,
+                isPaid: guest.paid === true,
+                canMarkPaid: true
+              }))
+            ];
             
-            return guestsToShow.length > 0 ? (
+            return rowsToShow.length > 0 ? (
               <div className="mt-4 pt-4 border-t border-gray-200">
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">División de Pago</p>
                 <div className="space-y-2">
-                  {guestsToShow.map((guest: any) => {
-                  // Obtener payment_method desde order_guests (en tiempo real)
-                  const paymentMethod = guest.payment_method?.toLowerCase() || null;
-                  // Monto pagado: suma de payments del guest (por batch). Fallback a individual_amount si no hay payments.
-                  const paymentsByGuest = (order.orderPayments || []).filter((p: any) => p.guest_id === guest.id);
-                  const sumFromPayments = paymentsByGuest.reduce((s: number, p: any) => s + (Number(p.amount) || Number(p.total_amount) || 0), 0);
-                  const guestTotal = sumFromPayments > 0 ? sumFromPayments : (Number(guest.individual_amount) || 0);
-
-                  // Verificar si está pagado: solo usar el campo paid de order_guests
-                  const isPaid = guest.paid === true;
-
-                  // Obtener payment_id directamente de order_guests
-                  const paymentId = guest.payment_id || null;
-
-                  // Determinar si necesita pago manual (solo efectivo o transferencia)
-                  // Para mercadopago, no mostrar botón, solo esperar que paid=true automáticamente
-                  const needsManualPayment = paymentMethod && (
-                    paymentMethod === 'efectivo' || 
+                  {rowsToShow.map((row: any) => {
+                  const paymentMethod = row.paymentMethod || null;
+                  const guestTotal = row.amount;
+                  const isPaid = row.isPaid;
+                  const paymentId = row.paymentId;
+                  const needsManualPayment = (row.canMarkPaid || row.type === 'charge') && paymentMethod && (
+                    paymentMethod === 'efectivo' ||
                     paymentMethod === 'transferencia'
                   );
-
-                  // Para mercadopago, no mostrar botón, solo el estado
                   const isMercadoPago = paymentMethod === 'mercadopago';
 
                   return (
                     <div 
-                      key={guest.id} 
+                      key={row.id} 
                       className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-100"
                     >
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <p className="text-sm font-black text-slate-900">{guest.name || 'Sin nombre'}</p>
+                          <p className="text-sm font-black text-slate-900">{row.name}</p>
                           <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase ${
                             isPaid 
                               ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
@@ -601,17 +651,17 @@ const OrderGroupCard: React.FC<{
                         {needsManualPayment && (
                           !isPaid && !propIsClosed ? (
                             <button
-                              onClick={() => onMarkGuestAsPaid(guest.id)}
-                              disabled={markingGuestAsPaid === guest.id}
+                              onClick={() => row.type === 'charge' ? onMarkChargeAsPaid(row.chargeId) : onMarkGuestAsPaid(row.guestId)}
+                              disabled={markingGuestAsPaid === (row.chargeId || row.guestId)}
                               className="px-4 py-2 bg-red-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-red-700 transition-all shadow-sm active:scale-95 whitespace-nowrap disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
                             >
-                              {markingGuestAsPaid === guest.id ? (
+                              {markingGuestAsPaid === (row.chargeId || row.guestId) ? (
                                 <>
                                   <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                                   <span>Procesando...</span>
                                 </>
                               ) : (
-                                'Marcar Pagado'
+                                'Pago Recibido'
                               )}
                             </button>
                           ) : null
@@ -702,6 +752,12 @@ const OrdersPage: React.FC = () => {
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
+        // Solo actualizar si estamos viendo órdenes abiertas
+        if (!showClosedOrders) {
+          fetchActiveOrders();
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_guest_charges' }, () => {
         // Solo actualizar si estamos viendo órdenes abiertas
         if (!showClosedOrders) {
           fetchActiveOrders();
@@ -910,10 +966,26 @@ const OrdersPage: React.FC = () => {
         paymentsData = payments || [];
       }
 
+      // Obtener cargos pendientes generados por la división de pago
+      let chargesData: any[] = [];
+      if (!showClosedOrders && orderIds.length > 0) {
+        const { data: charges, error: chargesError } = await supabase
+          .from('order_guest_charges')
+          .select('*')
+          .in('order_id', orderIds)
+          .eq('status', 'pending');
+        if (chargesError) {
+          console.error('Error al cargar order_guest_charges:', chargesError);
+        } else {
+          chargesData = charges || [];
+        }
+      }
+
       const processedOrders = ordersData.map(order => {
         // Obtener guests y payments para esta orden (antes de orderBatches para usarlos ahí)
         const orderGuests = guestsData.filter(guest => guest.order_id === order.id);
         const orderPayments = paymentsData.filter(payment => payment.order_id === order.id);
+        const orderGuestCharges = chargesData.filter(charge => charge.order_id === order.id);
 
         // Obtener batches para esta orden
         const orderBatches = batchesData
@@ -952,6 +1024,7 @@ const OrdersPage: React.FC = () => {
           order_batches: orderBatches,
           order_guests: guestsWithPayments,
           orderPayments,
+          orderGuestCharges,
           lastActivity
         };
       });
@@ -1047,6 +1120,81 @@ const OrdersPage: React.FC = () => {
     }
   };
 
+  const createManualPayment = async ({
+    orderId,
+    guestId,
+    chargeId,
+    amount,
+    paymentMethod
+  }: {
+    orderId: string;
+    guestId: string;
+    chargeId?: string | null;
+    amount: number;
+    paymentMethod: string;
+  }) => {
+    const normalizedPaymentMethod = paymentMethod === 'transfer'
+      ? 'transferencia'
+      : paymentMethod === 'cash'
+      ? 'efectivo'
+      : paymentMethod;
+
+    if (chargeId) {
+      const { data: existingPayment } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('charge_id', chargeId)
+        .maybeSingle();
+
+      if (existingPayment?.id) {
+        return {
+          id: existingPayment.id,
+          paymentMethod: normalizedPaymentMethod
+        };
+      }
+    }
+
+    const paymentPayload: any = {
+      order_id: orderId,
+      guest_id: guestId,
+      charge_id: chargeId || null,
+      amount,
+      payment_method: normalizedPaymentMethod,
+      mp_transaction_id: null,
+      status: 'approved'
+    };
+
+    let { data: newPayment, error: paymentError } = await supabase
+      .from('payments')
+      .insert(paymentPayload)
+      .select('id')
+      .single();
+
+    if (paymentError && paymentError.code === 'PGRST204' && (paymentError.message?.includes('guest_id') || paymentError.message?.includes('charge_id'))) {
+      const { guest_id, charge_id, ...fallbackPayload } = paymentPayload;
+      const retry = await supabase
+        .from('payments')
+        .insert(fallbackPayload)
+        .select('id')
+        .single();
+      newPayment = retry.data;
+      paymentError = retry.error;
+    }
+
+    if (paymentError) {
+      throw paymentError;
+    }
+
+    if (!newPayment?.id) {
+      throw new Error('No se pudo crear el registro de pago.');
+    }
+
+    return {
+      id: newPayment.id,
+      paymentMethod: normalizedPaymentMethod
+    };
+  };
+
   const handleMarkGuestAsPaid = async (guestId: string) => {
     if (!guestId) {
       alert('Error: ID de guest no válido');
@@ -1057,35 +1205,69 @@ const OrdersPage: React.FC = () => {
     setMarkingGuestAsPaid(guestId);
 
     try {
-      // Intentar primero con función RPC (bypassa RLS)
-      const { data: rpcData, error: rpcError } = await supabase.rpc('mark_guest_as_paid', {
-        guest_id: guestId
-      });
+      const { data: guest, error: guestFetchError } = await supabase
+        .from('order_guests')
+        .select('id, order_id, individual_amount, payment_method')
+        .eq('id', guestId)
+        .single();
 
-      if (rpcError) {
-        // Si la función RPC no existe o falla, intentar con update directo
-        console.warn('Función RPC no disponible, intentando update directo:', rpcError.message);
+      if (guestFetchError) {
+        throw guestFetchError;
+      }
 
-        const { data, error } = await supabase
+      const amount = Number(guest?.individual_amount) || 0;
+      const paymentMethod = guest?.payment_method?.toLowerCase() || 'efectivo';
+      let paymentId: string | null = null;
+      let normalizedPaymentMethod = paymentMethod;
+
+      if (amount > 0 && (paymentMethod === 'efectivo' || paymentMethod === 'transferencia' || paymentMethod === 'cash' || paymentMethod === 'transfer')) {
+        const manualPayment = await createManualPayment({
+          orderId: guest.order_id,
+          guestId,
+          chargeId: null,
+          amount,
+          paymentMethod
+        });
+        paymentId = manualPayment.id;
+        normalizedPaymentMethod = manualPayment.paymentMethod;
+      }
+
+      const guestUpdatePayload: any = {
+        paid: true,
+        payment_method: normalizedPaymentMethod
+      };
+
+      if (paymentId) {
+        guestUpdatePayload.payment_id = paymentId;
+      }
+
+      let { error } = await supabase
+        .from('order_guests')
+        .update(guestUpdatePayload)
+        .eq('id', guestId);
+
+      if (error && error.code === 'PGRST204' && error.message?.includes('payment_id')) {
+        const { payment_id, ...fallbackPayload } = guestUpdatePayload;
+        const retry = await supabase
           .from('order_guests')
-          .update({ paid: true })
-          .eq('id', guestId)
-          .select();
+          .update(fallbackPayload)
+          .eq('id', guestId);
+        error = retry.error;
+      }
 
-        if (error) {
-          console.error('Error al actualizar order_guests:', error);
-          setMarkingGuestAsPaid(null); // Desactivar loading en caso de error
-          if (error.message?.includes('policy') || error.message?.includes('RLS') || error.message?.includes('permission')) {
-            alert(
-              'Error: No tienes permisos para actualizar order_guests.\n\n' +
-              'Solución: Ejecuta el script "mark_guest_as_paid_function.sql" en el SQL Editor de Supabase\n' +
-              'O ejecuta "add_order_guests_paid_policy.sql" para agregar políticas RLS de UPDATE.'
-            );
-          } else {
-            alert("Error al marcar como pagado: " + error.message);
-          }
-          return;
+      if (error) {
+        console.error('Error al actualizar order_guests:', error);
+        setMarkingGuestAsPaid(null); // Desactivar loading en caso de error
+        if (error.message?.includes('policy') || error.message?.includes('RLS') || error.message?.includes('permission')) {
+          alert(
+            'Error: No tienes permisos para actualizar order_guests.\n\n' +
+            'Solución: Ejecuta el script "mark_guest_as_paid_function.sql" en el SQL Editor de Supabase\n' +
+            'O ejecuta "add_order_guests_paid_policy.sql" para agregar políticas RLS de UPDATE.'
+          );
+        } else {
+          alert("Error al marcar como pagado: " + error.message);
         }
+        return;
       }
 
       // Refrescar las órdenes para mostrar el cambio
@@ -1096,6 +1278,80 @@ const OrdersPage: React.FC = () => {
       alert("Error al marcar como pagado: " + (err.message || 'Error desconocido'));
     } finally {
       // Desactivar loading después de completar (con un pequeño delay para que se vea el cambio)
+      setTimeout(() => {
+        setMarkingGuestAsPaid(null);
+      }, 500);
+    }
+  };
+
+  const handleMarkChargeAsPaid = async (chargeId: string) => {
+    if (!chargeId) {
+      alert('Error: ID de cargo no válido');
+      return;
+    }
+
+    setMarkingGuestAsPaid(chargeId);
+
+    try {
+      const { data: charge, error: chargeFetchError } = await supabase
+        .from('order_guest_charges')
+        .select('id, order_id, guest_id, amount, payment_method')
+        .eq('id', chargeId)
+        .single();
+
+      if (chargeFetchError) {
+        throw chargeFetchError;
+      }
+
+      const paymentMethod = charge?.payment_method?.toLowerCase() || 'efectivo';
+      const manualPayment = await createManualPayment({
+        orderId: charge.order_id,
+        guestId: charge.guest_id,
+        chargeId,
+        amount: Number(charge.amount) || 0,
+        paymentMethod
+      });
+
+      let { error } = await supabase
+        .from('order_guest_charges')
+        .update({
+          status: 'paid',
+          payment_method: manualPayment.paymentMethod,
+          payment_id: manualPayment.id,
+          paid_at: new Date().toISOString()
+        })
+        .eq('id', chargeId);
+
+      if (error && error.code === 'PGRST204' && error.message?.includes('payment_id')) {
+        const retry = await supabase
+          .from('order_guest_charges')
+          .update({
+            status: 'paid',
+            payment_method: manualPayment.paymentMethod,
+            paid_at: new Date().toISOString()
+          })
+          .eq('id', chargeId);
+        error = retry.error;
+      }
+
+      if (error) {
+        console.error('Error al actualizar order_guest_charges:', error);
+        if (error.message?.includes('policy') || error.message?.includes('RLS') || error.message?.includes('permission')) {
+          alert(
+            'Error: No tienes permisos para actualizar order_guest_charges.\n\n' +
+            'Solución: Verifica las políticas RLS en Supabase para permitir UPDATE en order_guest_charges.'
+          );
+        } else {
+          alert('Error al confirmar pago recibido: ' + error.message);
+        }
+        return;
+      }
+
+      await fetchActiveOrders();
+    } catch (err: any) {
+      console.error('Error completo al confirmar pago recibido:', err);
+      alert('Error al confirmar pago recibido: ' + (err.message || 'Error desconocido'));
+    } finally {
       setTimeout(() => {
         setMarkingGuestAsPaid(null);
       }, 500);
@@ -1257,7 +1513,7 @@ const OrdersPage: React.FC = () => {
           if (archiveError.message?.includes('function') || 
               archiveError.message?.includes('does not exist') ||
               archiveError.code === '42883') {
-            const errorMsg = "⚠️ La función de archivado no está disponible. Ejecuta archive_order_function.sql en Supabase SQL Editor.";
+            const errorMsg = "⚠️ La función de archivado no está disponible. Ejecuta archive_closed_orders_function.sql en Supabase SQL Editor.";
             console.warn(errorMsg);
             setErrorMsg(errorMsg);
             // No lanzamos error aquí porque la orden ya está cerrada
@@ -1398,11 +1654,14 @@ const OrdersPage: React.FC = () => {
 
       if (archiveError) {
         console.error("❌ Error al archivar órdenes:", archiveError);
-        setErrorMsg("No se pudieron archivar las órdenes: " + (archiveError.message || 'Error desconocido'));
+        const archiveErrorMessage = archiveError.message || 'Error desconocido';
+        setErrorMsg("No se pudieron archivar las órdenes: " + archiveErrorMessage);
         
         // Si la función no existe, mostrar mensaje específico
         if (archiveError.message?.includes('function') || archiveError.message?.includes('does not exist') || archiveError.code === '42883') {
           setErrorMsg("⚠️ La función de archivado no está disponible. Ejecuta archive_closed_orders_function.sql en Supabase SQL Editor.");
+        } else if (archiveErrorMessage.includes('archived_at') || archiveErrorMessage.includes('jsonb')) {
+          setErrorMsg("⚠️ Supabase todavía está usando una versión vieja de la función de archivado. Ejecuta nuevamente archive_closed_orders_function.sql completo y espera unos segundos a que recargue el schema.");
         }
         return;
       }
@@ -1536,18 +1795,31 @@ const OrdersPage: React.FC = () => {
         </div>
       </div>
 
-      {errorMsg && (
-        <div className="p-6 bg-rose-50 border-2 border-rose-100 rounded-3xl flex items-center gap-4 text-rose-600 animate-shake">
-          <AlertCircle size={24} />
+      {errorMsg && (() => {
+        const isSuccessMessage = errorMsg.startsWith('✅');
+        const MessageIcon = isSuccessMessage ? CheckCircle2 : AlertCircle;
+        return (
+        <div className={`p-6 rounded-3xl flex items-center gap-4 border-2 ${
+          isSuccessMessage
+            ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+            : 'bg-rose-50 border-rose-100 text-rose-600 animate-shake'
+        }`}>
+          <MessageIcon size={24} />
           <div className="flex-1">
-            <p className="font-black text-xs uppercase tracking-widest">Atención Requerida</p>
+            <p className="font-black text-xs uppercase tracking-widest">
+              {isSuccessMessage ? 'Operación completada' : 'Atención Requerida'}
+            </p>
             <p className="text-sm font-bold opacity-80">{errorMsg}</p>
           </div>
-          <button onClick={() => setErrorMsg(null)} className="p-2 hover:bg-rose-100 rounded-full">
+          <button
+            onClick={() => setErrorMsg(null)}
+            className={`p-2 rounded-full ${isSuccessMessage ? 'hover:bg-emerald-100' : 'hover:bg-rose-100'}`}
+          >
             <X size={18} />
           </button>
         </div>
-      )}
+        );
+      })()}
 
       {toggleLoading ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
@@ -1584,6 +1856,7 @@ const OrdersPage: React.FC = () => {
               onUpdateBatchStatus={handleUpdateBatchStatus}
               onRemoveOrderItem={showClosedOrders ? undefined : handleRemoveOrderItem}
               onMarkGuestAsPaid={handleMarkGuestAsPaid}
+              onMarkChargeAsPaid={handleMarkChargeAsPaid}
               markingGuestAsPaid={markingGuestAsPaid}
               forceExpanded={order.id === expandedOrderId}
               isClosed={showClosedOrders || order.status === 'Pagado'}

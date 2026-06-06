@@ -35,6 +35,8 @@ Con el crecimiento del negocio, las tablas `orders`, `order_batches`, `order_ite
 │  - order_batches_archive                                │
 │  - order_items_archive                                  │
 │  - order_guests_archive                                 │
+│  - order_guest_charges_archive                          │
+│  - payments_archive                                     │
 │                                                         │
 │  ✅ Separadas: No afectan consultas activas            │
 │  ✅ Completas: Mantienen todos los datos históricos    │
@@ -44,29 +46,36 @@ Con el crecimiento del negocio, las tablas `orders`, `order_batches`, `order_ite
 
 ## 🔄 Flujo de Archivado
 
-1. **Usuario cierra una cuenta** → Orden cambia a status `'Pagado'`
+1. **Usuario cierra una cuenta** → Orden cambia a status `'Pagado'` o `'CERRADO'`
 2. **Sistema libera la mesa** → Mesa cambia a `'Libre'`
 3. **Sistema archiva automáticamente**:
    - Mueve `order` → `orders_archive`
    - Mueve todos los `order_batches` → `order_batches_archive`
    - Mueve todos los `order_items` → `order_items_archive`
    - Mueve todos los `order_guests` → `order_guests_archive`
+   - Mueve todos los `order_guest_charges` → `order_guest_charges_archive`
+   - Mueve todos los `payments` → `payments_archive`
    - Elimina registros de tablas activas
 
 ## 📝 Implementación
 
 ### Paso 1: Crear Tablas de Historial
 
-Ejecuta `archive_order_function.sql` en el SQL Editor de Supabase. Este script:
+Ejecuta `archive_closed_orders_function.sql` en el SQL Editor de Supabase. Este script:
 
 - Crea las tablas `*_archive` con la misma estructura que las originales
 - Agrega columna `archived_at` para tracking
 - Crea índices para búsquedas rápidas en historial
-- Crea función RPC `archive_order()` para automatizar el proceso
+- Crea función RPC `archive_order()` para archivar una orden individual
+- Crea función RPC `archive_closed_orders()` para el botón **ARCHIVAR ÓRDENES CERRADAS**
+- Copia datos por nombre de columna, no por posición, para evitar errores como `archived_at` recibiendo valores `jsonb`
 
 ### Paso 2: Modificar Código de Cierre
 
-El código en `OrdersPage.tsx` ya está actualizado para llamar a `archive_order()` automáticamente después de cerrar una orden.
+El código en `OrdersPage.tsx` llama a:
+
+- `archive_order()` automáticamente después de cerrar una orden.
+- `archive_closed_orders()` cuando se presiona **ARCHIVAR ÓRDENES CERRADAS**.
 
 ### Paso 3: Verificar Funcionamiento
 
@@ -119,8 +128,7 @@ WHERE ob.order_id = 'order_id';
 
 ## 🚀 Próximos Pasos
 
-1. ✅ Ejecutar `archive_order_function.sql` en Supabase
+1. ✅ Ejecutar `archive_closed_orders_function.sql` en Supabase
 2. ✅ Probar cerrar una orden y verificar el archivado
 3. ⏳ (Opcional) Crear script para archivar órdenes cerradas existentes
 4. ⏳ (Opcional) Crear dashboard de reportes históricos
-
