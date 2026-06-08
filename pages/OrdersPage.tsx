@@ -523,12 +523,26 @@ const OrderGroupCard: React.FC<{
             const payments = [...(order.orderPayments || [])]
               .filter((p: any) => (Number(p.amount) || Number(p.total_amount) || 0) > 0)
               .sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
-            const pendingCharges = [...(order.orderGuestCharges || [])]
-              .filter((charge: any) => charge.status === 'pending' && (Number(charge.amount) || 0) > 0)
+            const billableCharges = [...(order.orderGuestCharges || [])]
+              .filter((charge: any) => charge.status !== 'cancelled' && (Number(charge.amount) || 0) > 0)
               .sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+            const latestCharge = [...billableCharges].sort((a: any, b: any) =>
+              new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+            )[0];
+            const latestRoundId = latestCharge?.split_round_id || null;
+            const latestRoundCharges = latestRoundId
+              ? billableCharges.filter((charge: any) => charge.split_round_id === latestRoundId)
+              : billableCharges;
+            const latestRoundChargeIds = new Set(latestRoundCharges.map((charge: any) => charge.id).filter(Boolean));
+            const pendingCharges = latestRoundCharges.filter((charge: any) => charge.status === 'pending');
+            const paymentsToShow = propIsClosed
+              ? payments
+              : payments.filter((payment: any) =>
+                !payment.charge_id || latestRoundChargeIds.has(payment.charge_id)
+              );
 
             const guestById = new Map(guests.map((guest: any) => [guest.id, guest]));
-            const guestsWithRegisteredPayments = new Set(payments.map((payment: any) => payment.guest_id).filter(Boolean));
+            const guestsWithRegisteredPayments = new Set(paymentsToShow.map((payment: any) => payment.guest_id).filter(Boolean));
             const guestsWithPendingCharges = new Set(pendingCharges.map((charge: any) => charge.guest_id).filter(Boolean));
             const guestsWithoutRegisteredPayments = guests.filter((guest: any) =>
               (Number(guest.individual_amount) || 0) > 0 &&
@@ -537,7 +551,7 @@ const OrderGroupCard: React.FC<{
             );
 
             const rowsToShow = [
-              ...payments.map((payment: any, index: number) => {
+              ...paymentsToShow.map((payment: any, index: number) => {
                 const guest = guestById.get(payment.guest_id) || null;
                 const amount = Number(payment.amount) || Number(payment.total_amount) || 0;
                 return {
@@ -590,14 +604,19 @@ const OrderGroupCard: React.FC<{
                 <div className="space-y-2">
                   {rowsToShow.map((row: any) => {
                   const paymentMethod = row.paymentMethod || null;
+                  const normalizedPaymentMethod = paymentMethod === 'transfer'
+                    ? 'transferencia'
+                    : paymentMethod === 'cash'
+                    ? 'efectivo'
+                    : paymentMethod;
                   const guestTotal = row.amount;
                   const isPaid = row.isPaid;
                   const paymentId = row.paymentId;
-                  const needsManualPayment = (row.canMarkPaid || row.type === 'charge') && paymentMethod && (
-                    paymentMethod === 'efectivo' ||
-                    paymentMethod === 'transferencia'
+                  const needsManualPayment = (row.canMarkPaid || row.type === 'charge') && normalizedPaymentMethod && (
+                    normalizedPaymentMethod === 'efectivo' ||
+                    normalizedPaymentMethod === 'transferencia'
                   );
-                  const isMercadoPago = paymentMethod === 'mercadopago';
+                  const isMercadoPago = normalizedPaymentMethod === 'mercadopago';
 
                   return (
                     <div 
@@ -618,7 +637,7 @@ const OrderGroupCard: React.FC<{
                         {paymentMethod && (
                           <>
                             <p className="text-[9px] text-slate-500 font-medium">
-                              Método: <span className="font-black text-slate-700 capitalize">{paymentMethod}</span>
+                              Método: <span className="font-black text-slate-700 capitalize">{normalizedPaymentMethod}</span>
                             </p>
                             {isMercadoPago && isPaid && paymentId && (
                               <div className="flex items-center gap-1.5 mt-1">
@@ -698,6 +717,7 @@ const OrdersPage: React.FC = () => {
   const [closingOrderId, setClosingOrderId] = useState<string | null>(null);
   const [archivingOrders, setArchivingOrders] = useState(false);
   const bellAudioRef = useRef<HTMLAudioElement | null>(null);
+  const refreshTimerRef = useRef<number | null>(null);
 
   const updateURL = (params: Record<string, string | null>) => {
     const newParams = new URLSearchParams(searchParams);
@@ -716,18 +736,30 @@ const OrdersPage: React.FC = () => {
 
     fetchActiveOrders();
 
+    const refreshOpenOrders = () => {
+      if (showClosedOrders) return;
+
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+
+      refreshTimerRef.current = window.setTimeout(() => {
+        fetchActiveOrders();
+        refreshTimerRef.current = null;
+      }, 150);
+    };
+
     const channel = supabase
-      .channel('admin-kitchen-realtime')
+      .channel(`admin-kitchen-realtime-${CURRENT_RESTAURANT?.id || 'restaurant'}-${Date.now()}`)
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
         table: 'orders',
         filter: CURRENT_RESTAURANT?.id ? `restaurant_id=eq.${CURRENT_RESTAURANT.id}` : undefined
       }, (payload) => {
-        // Solo actualizar si estamos viendo órdenes abiertas
         if (!showClosedOrders) {
           setExpandedOrderId(payload.new.id);
-          fetchActiveOrders();
+          refreshOpenOrders();
         }
       })
       .on('postgres_changes', { 
@@ -735,33 +767,23 @@ const OrdersPage: React.FC = () => {
         schema: 'public', 
         table: 'order_batches' 
       }, (payload) => {
-        // Solo actualizar si estamos viendo órdenes abiertas
         if (!showClosedOrders) {
-          if (bellAudioRef.current) {
+          if (bellAudioRef.current && payload.new?.status !== 'CREADO') {
             bellAudioRef.current.currentTime = 0;
             bellAudioRef.current.play().catch(() => {});
           }
           setExpandedOrderId(payload.new.order_id);
-          fetchActiveOrders();
+          refreshOpenOrders();
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_batches' }, () => {
-        // Solo actualizar si estamos viendo órdenes abiertas
-        if (!showClosedOrders) {
-          fetchActiveOrders();
-        }
+        refreshOpenOrders();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
-        // Solo actualizar si estamos viendo órdenes abiertas
-        if (!showClosedOrders) {
-          fetchActiveOrders();
-        }
+        refreshOpenOrders();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_guest_charges' }, () => {
-        // Solo actualizar si estamos viendo órdenes abiertas
-        if (!showClosedOrders) {
-          fetchActiveOrders();
-        }
+        refreshOpenOrders();
       })
       .on('postgres_changes', { 
         event: 'UPDATE', 
@@ -769,24 +791,34 @@ const OrdersPage: React.FC = () => {
         table: 'orders',
         filter: CURRENT_RESTAURANT?.id ? `restaurant_id=eq.${CURRENT_RESTAURANT.id}` : undefined
       }, () => {
-        // Solo actualizar si estamos viendo órdenes abiertas
-        if (!showClosedOrders) {
-          fetchActiveOrders();
-        }
+        refreshOpenOrders();
       })
       .on('postgres_changes', { 
         event: 'UPDATE', 
         schema: 'public', 
         table: 'order_guests'
       }, () => {
-        // Solo actualizar si estamos viendo órdenes abiertas
-        if (!showClosedOrders) {
-          fetchActiveOrders();
-        }
+        refreshOpenOrders();
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log('📡 Estado del canal kitchen realtime:', status);
+      });
+
+    const intervalId = window.setInterval(refreshOpenOrders, 10000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshOpenOrders();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       supabase.removeChannel(channel);
     };
   }, [showClosedOrders]);
@@ -807,44 +839,61 @@ const OrdersPage: React.FC = () => {
     try {
       setErrorMsg(null);
 
-      // Determinar qué tablas usar según el toggle
-      const ordersTable = showClosedOrders ? 'orders_archive' : 'orders';
-      const batchesTable = showClosedOrders ? 'order_batches_archive' : 'order_batches';
-      const itemsTable = showClosedOrders ? 'order_items_archive' : 'order_items';
-      const guestsTable = showClosedOrders ? 'order_guests_archive' : 'order_guests';
-      const paymentsTable = showClosedOrders ? 'payments_archive' : 'payments';
+      const isMissingRpcError = (error: any) =>
+        error?.code === 'PGRST202' || error?.message?.includes('Could not find the function');
 
-      // Construir la query según el toggle
-      console.log('🔍 fetchActiveOrders - showClosedOrders:', showClosedOrders, 'ordersTable:', ordersTable);
+      const fetchArchiveRows = async (myRpcName: string, rpcName: string, tableName: string) => {
+        const { data: myRpcData, error: myRpcError } = await supabase.rpc(myRpcName);
 
-      let query = supabase
-        .from(ordersTable)
-        .select('*')
-        .eq('restaurant_id', CURRENT_RESTAURANT.id);
+        if (!myRpcError) {
+          return myRpcData || [];
+        }
 
+        if (!isMissingRpcError(myRpcError)) {
+          throw myRpcError;
+        }
+
+        const { data: rpcData, error: rpcError } = await supabase.rpc(rpcName, {
+          p_restaurant_id: CURRENT_RESTAURANT.id
+        });
+
+        if (!rpcError) {
+          return rpcData || [];
+        }
+
+        if (!isMissingRpcError(rpcError)) {
+          throw rpcError;
+        }
+
+        const { data, error } = await supabase
+          .from(tableName)
+          .select('*')
+          .eq('restaurant_id', CURRENT_RESTAURANT.id);
+
+        if (error) throw error;
+        return data || [];
+      };
+
+      let ordersData: any[] = [];
       if (showClosedOrders) {
-        // Mostrar todas las órdenes archivadas (sin filtro de status)
-        // Las órdenes archivadas ya están todas cerradas
-        // No aplicamos ningún filtro adicional
-        console.log('📦 Consultando orders_archive (sin filtros)');
+        const archivedOrders = await fetchArchiveRows('admin_get_my_orders_archive', 'admin_get_orders_archive', 'orders_archive');
+        ordersData = (archivedOrders || []).map(order => ({ ...order, __source: 'archive' }));
       } else {
-        // Mostrar órdenes abiertas (ABIERTO, SOLICITADO, Pagado o CERRADO)
-        query = query.or('status.eq.ABIERTO,status.eq.SOLICITADO,status.eq.Pagado,status.eq.CERRADO');
-        console.log('📋 Consultando orders (con filtro ABIERTO/SOLICITADO/Pagado/CERRADO)');
+        const { data: activeOrders, error: activeOrdersError } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('restaurant_id', CURRENT_RESTAURANT.id)
+          .or('status.eq.ABIERTO,status.eq.SOLICITADO,status.eq.Pagado,status.eq.CERRADO');
+
+        if (activeOrdersError) throw activeOrdersError;
+        ordersData = (activeOrders || []).map(order => ({ ...order, __source: 'active' }));
       }
 
-      const { data: ordersData, error: ordersError } = await query;
-
-      // Debug: verificar qué tabla se está consultando
-      console.log(`✅ Consulta completada. Tabla: ${ordersTable}, Órdenes encontradas:`, ordersData?.length || 0);
-      if (ordersData && ordersData.length > 0) {
-        console.log('📊 Primeras órdenes:', ordersData.slice(0, 3).map(o => ({ id: o.id, status: o.status, table_id: o.table_id })));
-      }
-
-      if (ordersError) throw ordersError;
       if (!ordersData) { setOrders([]); return; }
 
       const orderIds = ordersData.map(order => order.id);
+      const activeOrderIds = ordersData.filter(order => order.__source === 'active').map(order => order.id);
+      const archivedOrderIds = ordersData.filter(order => order.__source === 'archive').map(order => order.id);
 
       // Obtener información de las mesas por separado (ya que no hay relación directa con orders_archive)
       const tableIds = [...new Set(ordersData.map(order => order.table_id).filter(Boolean))];
@@ -863,29 +912,95 @@ const OrdersPage: React.FC = () => {
 
       // Obtener batches por separado (ya que no podemos hacer join entre tablas diferentes)
       let batchesData: any[] = [];
-      if (orderIds.length > 0) {
+      if (activeOrderIds.length > 0) {
         const { data: batches, error: batchesError } = await supabase
-          .from(batchesTable)
+          .from('order_batches')
           .select('*')
-          .in('order_id', orderIds);
+          .in('order_id', activeOrderIds);
         if (batchesError) {
           console.error('Error al cargar batches:', batchesError);
         } else {
-          batchesData = batches || [];
+          batchesData = [...batchesData, ...(batches || []).map(batch => ({ ...batch, __source: 'active' }))];
+        }
+      }
+      if (archivedOrderIds.length > 0) {
+        let archivedBatchesRpc: any[] | null = null;
+        let archivedBatchesRpcError: any = null;
+        const { data: myArchivedBatches, error: myArchivedBatchesError } = await supabase.rpc('admin_get_my_order_batches_archive');
+        if (!myArchivedBatchesError) {
+          archivedBatchesRpc = myArchivedBatches || [];
+        } else if (isMissingRpcError(myArchivedBatchesError)) {
+          const fallback = await supabase.rpc('admin_get_order_batches_archive', {
+            p_restaurant_id: CURRENT_RESTAURANT.id
+          });
+          archivedBatchesRpc = fallback.data || null;
+          archivedBatchesRpcError = fallback.error;
+        } else {
+          archivedBatchesRpcError = myArchivedBatchesError;
+        }
+        if (!archivedBatchesRpcError) {
+          batchesData = [
+            ...batchesData,
+            ...(archivedBatchesRpc || [])
+              .filter((batch: any) => archivedOrderIds.includes(batch.order_id))
+              .map((batch: any) => ({ ...batch, __source: 'archive' }))
+          ];
+        } else {
+          const { data: archivedBatches, error: archivedBatchesError } = await supabase
+            .from('order_batches_archive')
+            .select('*')
+            .in('order_id', archivedOrderIds);
+          if (archivedBatchesError) {
+            console.error('Error al cargar archived batches:', archivedBatchesError);
+          } else {
+            batchesData = [...batchesData, ...(archivedBatches || []).map(batch => ({ ...batch, __source: 'archive' }))];
+          }
         }
       }
 
-      const batchIds = batchesData.map(batch => batch.id);
+      const activeBatchIds = batchesData.filter(batch => batch.__source === 'active').map(batch => batch.id);
+      const archivedBatchIds = batchesData.filter(batch => batch.__source === 'archive').map(batch => batch.id);
 
       let itemsData: any[] = [];
-      if (batchIds.length > 0) {
+      if (activeBatchIds.length > 0 || archivedBatchIds.length > 0) {
         // Obtener items sin el join con menu_items (ya que no hay relación directa con _archive)
-        const { data: items, error: itemsError } = await supabase
-          .from(itemsTable)
-          .select('*')
-          .in('batch_id', batchIds);
-        if (itemsError) throw itemsError;
-        itemsData = items || [];
+        if (activeBatchIds.length > 0) {
+          const { data: items, error: itemsError } = await supabase
+            .from('order_items')
+            .select('*')
+            .in('batch_id', activeBatchIds);
+          if (itemsError) throw itemsError;
+          itemsData = [...itemsData, ...(items || [])];
+        }
+        if (archivedBatchIds.length > 0) {
+          let archivedItemsRpc: any[] | null = null;
+          let archivedItemsRpcError: any = null;
+          const { data: myArchivedItems, error: myArchivedItemsError } = await supabase.rpc('admin_get_my_order_items_archive');
+          if (!myArchivedItemsError) {
+            archivedItemsRpc = myArchivedItems || [];
+          } else if (isMissingRpcError(myArchivedItemsError)) {
+            const fallback = await supabase.rpc('admin_get_order_items_archive', {
+              p_restaurant_id: CURRENT_RESTAURANT.id
+            });
+            archivedItemsRpc = fallback.data || null;
+            archivedItemsRpcError = fallback.error;
+          } else {
+            archivedItemsRpcError = myArchivedItemsError;
+          }
+          if (!archivedItemsRpcError) {
+            itemsData = [
+              ...itemsData,
+              ...(archivedItemsRpc || []).filter((item: any) => archivedBatchIds.includes(item.batch_id))
+            ];
+          } else {
+            const { data: archivedItems, error: archivedItemsError } = await supabase
+              .from('order_items_archive')
+              .select('*')
+              .in('batch_id', archivedBatchIds);
+            if (archivedItemsError) throw archivedItemsError;
+            itemsData = [...itemsData, ...(archivedItems || [])];
+          }
+        }
 
         // Obtener menu_items por separado si hay items
         if (itemsData.length > 0) {
@@ -943,37 +1058,98 @@ const OrdersPage: React.FC = () => {
 
       // Obtener order_guests para cada orden
       let guestsData: any[] = [];
-      if (orderIds.length > 0) {
+      if (activeOrderIds.length > 0) {
         const { data: guests, error: guestsError } = await supabase
-          .from(guestsTable)
+          .from('order_guests')
           .select('*')
-          .in('order_id', orderIds);
+          .in('order_id', activeOrderIds);
         if (guestsError) {
           console.error('Error al cargar order_guests:', guestsError);
         } else {
-          guestsData = guests || [];
+          guestsData = [...guestsData, ...(guests || [])];
+        }
+      }
+      if (archivedOrderIds.length > 0) {
+        let archivedGuestsRpc: any[] | null = null;
+        let archivedGuestsRpcError: any = null;
+        const { data: myArchivedGuests, error: myArchivedGuestsError } = await supabase.rpc('admin_get_my_order_guests_archive');
+        if (!myArchivedGuestsError) {
+          archivedGuestsRpc = myArchivedGuests || [];
+        } else if (isMissingRpcError(myArchivedGuestsError)) {
+          const fallback = await supabase.rpc('admin_get_order_guests_archive', {
+            p_restaurant_id: CURRENT_RESTAURANT.id
+          });
+          archivedGuestsRpc = fallback.data || null;
+          archivedGuestsRpcError = fallback.error;
+        } else {
+          archivedGuestsRpcError = myArchivedGuestsError;
+        }
+        if (!archivedGuestsRpcError) {
+          guestsData = [
+            ...guestsData,
+            ...(archivedGuestsRpc || []).filter((guest: any) => archivedOrderIds.includes(guest.order_id))
+          ];
+        } else {
+          const { data: archivedGuests, error: archivedGuestsError } = await supabase
+            .from('order_guests_archive')
+            .select('*')
+            .in('order_id', archivedOrderIds);
+          if (archivedGuestsError) {
+            console.error('Error al cargar order_guests_archive:', archivedGuestsError);
+          } else {
+            guestsData = [...guestsData, ...(archivedGuests || [])];
+          }
         }
       }
 
       // Obtener payments para cada orden
       let paymentsData: any[] = [];
-      if (orderIds.length > 0) {
+      if (activeOrderIds.length > 0) {
         const { data: payments, error: paymentsError } = await supabase
-          .from(paymentsTable)
+          .from('payments')
           .select('*')
-          .in('order_id', orderIds);
+          .in('order_id', activeOrderIds);
         if (paymentsError) throw paymentsError;
-        paymentsData = payments || [];
+        paymentsData = [...paymentsData, ...(payments || [])];
+      }
+      if (archivedOrderIds.length > 0) {
+        let archivedPaymentsRpc: any[] | null = null;
+        let archivedPaymentsRpcError: any = null;
+        const { data: myArchivedPayments, error: myArchivedPaymentsError } = await supabase.rpc('admin_get_my_payments_archive');
+        if (!myArchivedPaymentsError) {
+          archivedPaymentsRpc = myArchivedPayments || [];
+        } else if (isMissingRpcError(myArchivedPaymentsError)) {
+          const fallback = await supabase.rpc('admin_get_payments_archive', {
+            p_restaurant_id: CURRENT_RESTAURANT.id
+          });
+          archivedPaymentsRpc = fallback.data || null;
+          archivedPaymentsRpcError = fallback.error;
+        } else {
+          archivedPaymentsRpcError = myArchivedPaymentsError;
+        }
+        if (!archivedPaymentsRpcError) {
+          paymentsData = [
+            ...paymentsData,
+            ...(archivedPaymentsRpc || []).filter((payment: any) => archivedOrderIds.includes(payment.order_id))
+          ];
+        } else {
+          const { data: archivedPayments, error: archivedPaymentsError } = await supabase
+            .from('payments_archive')
+            .select('*')
+            .in('order_id', archivedOrderIds);
+          if (archivedPaymentsError) throw archivedPaymentsError;
+          paymentsData = [...paymentsData, ...(archivedPayments || [])];
+        }
       }
 
-      // Obtener cargos pendientes generados por la división de pago
+      // Obtener cargos de división de pago para detectar la última ronda vigente
       let chargesData: any[] = [];
       if (!showClosedOrders && orderIds.length > 0) {
         const { data: charges, error: chargesError } = await supabase
           .from('order_guest_charges')
           .select('*')
           .in('order_id', orderIds)
-          .eq('status', 'pending');
+          .neq('status', 'cancelled');
         if (chargesError) {
           console.error('Error al cargar order_guest_charges:', chargesError);
         } else {
@@ -1345,6 +1521,30 @@ const OrdersPage: React.FC = () => {
           alert('Error al confirmar pago recibido: ' + error.message);
         }
         return;
+      }
+
+      const guestUpdatePayload: any = {
+        paid: true,
+        payment_method: manualPayment.paymentMethod,
+        payment_id: manualPayment.id
+      };
+
+      let { error: guestUpdateError } = await supabase
+        .from('order_guests')
+        .update(guestUpdatePayload)
+        .eq('id', charge.guest_id);
+
+      if (guestUpdateError && guestUpdateError.code === 'PGRST204' && guestUpdateError.message?.includes('payment_id')) {
+        const { payment_id, ...fallbackPayload } = guestUpdatePayload;
+        const retry = await supabase
+          .from('order_guests')
+          .update(fallbackPayload)
+          .eq('id', charge.guest_id);
+        guestUpdateError = retry.error;
+      }
+
+      if (guestUpdateError) {
+        console.warn('No se pudo sincronizar order_guests para realtime de comensales:', guestUpdateError);
       }
 
       await fetchActiveOrders();
@@ -1866,10 +2066,14 @@ const OrdersPage: React.FC = () => {
       ) : (
         <div className="py-40 flex flex-col items-center justify-center bg-white rounded-[4rem] border border-dashed border-gray-200 text-center">
            <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center text-gray-200 mb-6">
-              <Utensils size={40} />
+              {showClosedOrders ? <Archive size={40} /> : <Utensils size={40} />}
            </div>
-           <h3 className="text-xl font-black text-slate-300 uppercase tracking-widest">Cocina en calma</h3>
-           <p className="text-xs text-slate-400 mt-2 font-medium">Los pedidos aparecerán aquí automáticamente</p>
+           <h3 className="text-xl font-black text-slate-300 uppercase tracking-widest">
+             {showClosedOrders ? 'No hay órdenes archivadas' : 'Cocina en calma'}
+           </h3>
+           <p className="text-xs text-slate-400 mt-2 font-medium">
+             {showClosedOrders ? 'Las órdenes aparecerán acá después de archivarlas' : 'Los pedidos aparecerán aquí automáticamente'}
+           </p>
         </div>
       )}
     </div>

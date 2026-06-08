@@ -57,6 +57,42 @@ const DashboardPage: React.FC = () => {
     }).format(value).replace('CLP', '$').trim();
   };
 
+  const getRangeStartDate = () => {
+    const now = new Date();
+
+    if (timeRange === 'weekly') {
+      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    }
+    if (timeRange === 'monthly') {
+      return new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    }
+    if (timeRange === 'yearly') {
+      return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+    }
+
+    return null;
+  };
+
+  const calculatePaidSales = (orders: any[], payments: any[]) => {
+    const paymentsByOrder = payments.reduce((acc: Record<string, number>, payment: any) => {
+      const orderId = payment.order_id;
+      if (!orderId) return acc;
+
+      const amount = Number(payment.amount) || Number(payment.total_amount) || 0;
+      acc[orderId] = (acc[orderId] || 0) + amount;
+      return acc;
+    }, {});
+
+    return orders.reduce((total, order) => {
+      const paidByOrder = paymentsByOrder[order.id] || 0;
+      if (paidByOrder > 0) return total + paidByOrder;
+
+      const normalizedStatus = String(order.status || '').toUpperCase();
+      const isPaidOrder = normalizedStatus === 'PAGADO' || normalizedStatus === 'CERRADO';
+      return isPaidOrder ? total + (Number(order.total_amount) || 0) : total;
+    }, 0);
+  };
+
   const fetchStats = async () => {
     const restaurantId = CURRENT_RESTAURANT?.id;
     if (!restaurantId) {
@@ -73,111 +109,71 @@ const DashboardPage: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('restaurant_id', restaurantId);
 
-      // 2. Ventas Históricas (desde tabla agregada para performance)
-      // Intentar usar tabla agregada primero, fallback a eventos si no existe
-      let historicalTotal = 0;
-      let rangeSales = 0;
-      let totalOrders = 0;
-      
-      console.log('📊 Dashboard - restaurantId:', restaurantId);
-      console.log('📊 Dashboard - timeRange:', timeRange);
-      
-      try {
-        // Intentar usar tabla agregada (más rápida)
-        const { data: histSummary, error: histSummaryError } = await supabase
-          .from('dashboard_daily_summary')
-          .select('total_sales, total_orders')
-          .eq('restaurant_id', restaurantId);
-        
-        console.log('📊 Dashboard - histSummary:', histSummary);
-        console.log('📊 Dashboard - histSummaryError:', histSummaryError);
-        
-        if (histSummary && histSummary.length > 0) {
-          // Usar tabla agregada
-          historicalTotal = histSummary.reduce((acc, curr) => acc + (Number(curr.total_sales) || 0), 0);
-          
-          // Ventas por rango usando tabla agregada
-          const now = new Date();
-          let startDate: Date;
-          
-          if (timeRange === 'weekly') {
-            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          } else if (timeRange === 'monthly') {
-            startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-          } else if (timeRange === 'yearly') {
-            startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-          } else {
-            startDate = new Date(0); // Historical = todo
-          }
-          
-          let rangeQuery = supabase
-            .from('dashboard_daily_summary')
-            .select('total_sales, total_orders')
-            .eq('restaurant_id', restaurantId);
-          
-          if (timeRange !== 'historical') {
-            rangeQuery = rangeQuery.gte('summary_date', startDate.toISOString().split('T')[0]);
-          }
-          
-          const { data: rangeSummary } = await rangeQuery;
-          
-          if (rangeSummary && rangeSummary.length > 0) {
-            rangeSales = rangeSummary.reduce((acc, curr) => acc + (Number(curr.total_sales) || 0), 0);
-            totalOrders = rangeSummary.reduce((acc, curr) => acc + (Number(curr.total_orders) || 0), 0);
-            console.log('📊 Dashboard - Usando tabla agregada:', { rangeSales, totalOrders, rangeSummaryLength: rangeSummary.length });
-          } else {
-            console.log('📊 Dashboard - Tabla agregada vacía, haciendo fallback a eventos');
-          }
-        } else {
-          // Fallback: usar eventos individuales si no existe tabla agregada
-          console.log('📊 Dashboard - No hay datos en tabla agregada, usando eventos individuales');
-          const { data: histData, error: histDataError } = await supabase
-            .from('dashboard_order_events')
-            .select('total_amount')
-            .eq('restaurant_id', restaurantId);
-          
-          console.log('📊 Dashboard - histData (eventos):', histData);
-          console.log('📊 Dashboard - histDataError:', histDataError);
-          
-          historicalTotal = histData?.reduce((acc, curr) => acc + (curr.total_amount || 0), 0) || 0;
+      const startDate = getRangeStartDate();
 
-          const now = new Date();
-          let query = supabase
-            .from('dashboard_order_events')
-            .select('total_amount, closed_at')
-            .eq('restaurant_id', restaurantId);
-          
-          if (timeRange === 'weekly') {
-            const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            query = query.gte('closed_at', weekAgo.toISOString());
-          } else if (timeRange === 'monthly') {
-            const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-            query = query.gte('closed_at', monthAgo.toISOString());
-          } else if (timeRange === 'yearly') {
-            const yearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-            query = query.gte('closed_at', yearAgo.toISOString());
-          }
+      const { data: activeOrdersData, error: activeOrdersError } = await supabase
+        .from('orders')
+        .select('id, status, total_amount, created_at')
+        .eq('restaurant_id', restaurantId);
 
-          const { data: ordersData } = await query;
-          
-          rangeSales = ordersData?.reduce((acc, curr) => acc + (curr.total_amount || 0), 0) || 0;
-          totalOrders = ordersData?.length || 0;
-        }
-      } catch (err) {
-        console.error("❌ Error al cargar desde tabla agregada, usando eventos:", err);
-        // Fallback completo a eventos individuales
-        const { data: histData, error: histDataError } = await supabase
-          .from('dashboard_order_events')
-          .select('total_amount')
-          .eq('restaurant_id', restaurantId);
-        
-        console.log('📊 Dashboard - Fallback eventos:', histData);
-        console.log('📊 Dashboard - Fallback error:', histDataError);
-        
-        historicalTotal = histData?.reduce((acc, curr) => acc + (curr.total_amount || 0), 0) || 0;
+      if (activeOrdersError) {
+        throw activeOrdersError;
       }
-      
-      console.log('📊 Dashboard - Resultados finales:', { historicalTotal, rangeSales, totalOrders });
+
+      const { data: archivedOrdersData, error: archivedOrdersError } = await supabase
+        .from('orders_archive')
+        .select('id, status, total_amount, created_at')
+        .eq('restaurant_id', restaurantId);
+
+      if (archivedOrdersError) {
+        throw archivedOrdersError;
+      }
+
+      const allOrders = [
+        ...(activeOrdersData || []),
+        ...(archivedOrdersData || [])
+      ];
+      const rangeOrders = startDate
+        ? allOrders.filter((order: any) => new Date(order.created_at) >= startDate)
+        : allOrders;
+      const allOrderIds = allOrders.map((order: any) => order.id);
+
+      let activePaymentsData: any[] = [];
+      let archivedPaymentsData: any[] = [];
+
+      if (allOrderIds.length > 0) {
+        const { data: activePayments, error: activePaymentsError } = await supabase
+          .from('payments')
+          .select('order_id, amount')
+          .in('order_id', allOrderIds);
+
+        if (activePaymentsError) {
+          throw activePaymentsError;
+        }
+
+        const { data: archivedPayments, error: archivedPaymentsError } = await supabase
+          .from('payments_archive')
+          .select('order_id, amount')
+          .in('order_id', allOrderIds);
+
+        if (archivedPaymentsError) {
+          throw archivedPaymentsError;
+        }
+
+        activePaymentsData = activePayments || [];
+        archivedPaymentsData = archivedPayments || [];
+      }
+
+      const allPayments = [
+        ...activePaymentsData,
+        ...archivedPaymentsData
+      ];
+
+      const rangeOrderIds = new Set(rangeOrders.map((order: any) => order.id));
+      const rangePayments = allPayments.filter((payment: any) => rangeOrderIds.has(payment.order_id));
+      const historicalTotal = calculatePaidSales(allOrders, allPayments);
+      const rangeSales = calculatePaidSales(rangeOrders, rangePayments);
+      const totalOrders = rangeOrders.length;
 
       setStats({
         dishes: dishCount || 0,
