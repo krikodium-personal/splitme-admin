@@ -4,11 +4,28 @@ import {
   ShoppingBag, Clock, CheckCircle2, Utensils, Hash, 
   MessageSquare, Play, Check, CircleDollarSign, 
   Timer, AlertCircle, Loader2, ChevronDown, ChevronUp, BellRing, X,
-  Maximize2, Minimize2, Archive, CheckCircle, Copy, Trash2
+  Maximize2, Minimize2, Archive, CheckCircle, Copy, Trash2, Calendar
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { CURRENT_RESTAURANT } from '../types';
+
+type ArchivedPeriodMode = 'currentMonth' | 'month' | 'year';
+
+const MONTH_NAMES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre'
+];
 
 const BatchCard: React.FC<{ 
   batch: any, 
@@ -56,7 +73,7 @@ const BatchCard: React.FC<{
           isExpanded ? 'bg-indigo-50/30 border-gray-100' : 'bg-gray-50/80 border-transparent'
         } hover:bg-indigo-50/50`}
       >
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px] transition-all duration-500 transform ${
             batch.status === 'SERVIDO' ? 'bg-emerald-500 text-white scale-90 rotate-[360deg]' : 'bg-slate-800 text-white shadow-md'
           }`}>
@@ -481,7 +498,7 @@ const OrderGroupCard: React.FC<{
                 {isCollapsed ? <Maximize2 size={18} /> : <Minimize2 size={18} />}
               </button>
             </div>
-            {hasBatchesCreado && (
+            {!propIsClosed && !isMesaCerrada && hasBatchesCreado && (
               <span className="text-[9px] font-black uppercase tracking-widest text-amber-600">
                 Pidiendo
               </span>
@@ -718,12 +735,19 @@ const OrderGroupCard: React.FC<{
 
 const OrdersPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const now = new Date();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [toggleLoading, setToggleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const showClosedOrders = searchParams.get('closed') === 'true';
+  const [archivedPeriodMode, setArchivedPeriodMode] = useState<ArchivedPeriodMode>('currentMonth');
+  const [archivedSelectedMonth, setArchivedSelectedMonth] = useState(now.getMonth());
+  const [archivedSelectedYear, setArchivedSelectedYear] = useState(now.getFullYear());
+  const [archivedAvailableYears, setArchivedAvailableYears] = useState<number[]>([now.getFullYear()]);
+  const [archivedAvailableMonthsByYear, setArchivedAvailableMonthsByYear] = useState<Record<number, Set<number>>>({});
+  const [archivedPeriodMenuOpen, setArchivedPeriodMenuOpen] = useState(false);
   const [markingGuestAsPaid, setMarkingGuestAsPaid] = useState<string | null>(null);
   const [closingOrderId, setClosingOrderId] = useState<string | null>(null);
   const [archivingOrders, setArchivingOrders] = useState(false);
@@ -740,6 +764,62 @@ const OrdersPage: React.FC = () => {
       }
     });
     setSearchParams(newParams, { replace: true });
+  };
+
+  const getArchivedPeriodRange = () => {
+    const current = new Date();
+
+    if (archivedPeriodMode === 'year') {
+      return {
+        start: new Date(archivedSelectedYear, 0, 1),
+        end: new Date(archivedSelectedYear + 1, 0, 1)
+      };
+    }
+
+    const year = archivedPeriodMode === 'currentMonth' ? current.getFullYear() : archivedSelectedYear;
+    const month = archivedPeriodMode === 'currentMonth' ? current.getMonth() : archivedSelectedMonth;
+
+    return {
+      start: new Date(year, month, 1),
+      end: new Date(year, month + 1, 1)
+    };
+  };
+
+  const getArchivedPeriodLabel = () => {
+    if (archivedPeriodMode === 'currentMonth') return 'Mes actual';
+    if (archivedPeriodMode === 'month') return `${MONTH_NAMES[archivedSelectedMonth]} ${archivedSelectedYear}`;
+    return `${archivedSelectedYear}`;
+  };
+
+  const isWithinArchivedPeriod = (dateValue: string) => {
+    const { start, end } = getArchivedPeriodRange();
+    const date = new Date(dateValue);
+    return date >= start && date < end;
+  };
+
+  const updateArchivedAvailablePeriods = (archivedOrders: any[]) => {
+    const monthsByYear: Record<number, Set<number>> = {};
+
+    archivedOrders.forEach((order: any) => {
+      const date = new Date(order.created_at);
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      if (!Number.isFinite(year) || !Number.isFinite(month)) return;
+
+      monthsByYear[year] = monthsByYear[year] || new Set<number>();
+      monthsByYear[year].add(month);
+    });
+
+    const years = Object.keys(monthsByYear)
+      .map(Number)
+      .sort((a, b) => b - a);
+
+    setArchivedAvailableYears(years.length > 0 ? years : [new Date().getFullYear()]);
+    setArchivedAvailableMonthsByYear(monthsByYear);
+
+    if (years.length > 0 && !years.includes(archivedSelectedYear)) {
+      setArchivedSelectedYear(years[0]);
+    }
   };
 
   useEffect(() => {
@@ -834,6 +914,15 @@ const OrdersPage: React.FC = () => {
     };
   }, [showClosedOrders]);
 
+  useEffect(() => {
+    if (archivedPeriodMode !== 'month') return;
+
+    const availableMonths = Array.from(archivedAvailableMonthsByYear[archivedSelectedYear] || []);
+    if (availableMonths.length === 0 || availableMonths.includes(archivedSelectedMonth)) return;
+
+    setArchivedSelectedMonth(Math.min(...availableMonths));
+  }, [archivedPeriodMode, archivedSelectedMonth, archivedSelectedYear, archivedAvailableMonthsByYear]);
+
   // Refrescar órdenes cuando cambie el toggle
   useEffect(() => {
     if (!loading) {
@@ -843,7 +932,7 @@ const OrdersPage: React.FC = () => {
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showClosedOrders]);
+  }, [showClosedOrders, archivedPeriodMode, archivedSelectedMonth, archivedSelectedYear]);
 
   const fetchActiveOrders = async () => {
     if (!CURRENT_RESTAURANT?.id) return;
@@ -888,7 +977,10 @@ const OrdersPage: React.FC = () => {
       let ordersData: any[] = [];
       if (showClosedOrders) {
         const archivedOrders = await fetchArchiveRows('admin_get_my_orders_archive', 'admin_get_orders_archive', 'orders_archive');
-        ordersData = (archivedOrders || []).map(order => ({ ...order, __source: 'archive' }));
+        updateArchivedAvailablePeriods(archivedOrders || []);
+        ordersData = (archivedOrders || [])
+          .filter((order: any) => order.created_at && isWithinArchivedPeriod(order.created_at))
+          .map(order => ({ ...order, __source: 'archive' }));
       } else {
         const { data: activeOrders, error: activeOrdersError } = await supabase
           .from('orders')
@@ -1771,6 +1863,39 @@ const OrdersPage: React.FC = () => {
     }
   };
 
+  const deleteDraftBatchesForClosedOrder = async (order: any) => {
+    const draftBatchIds = (order.order_batches || [])
+      .filter((batch: any) => batch.status === 'CREADO')
+      .map((batch: any) => batch.id)
+      .filter(Boolean);
+
+    if (draftBatchIds.length === 0) return;
+
+    console.log('🧹 Eliminando batches CREADO antes de cerrar mesa:', {
+      order_id: order.id,
+      draft_batches: draftBatchIds.length
+    });
+
+    const { error: itemsDeleteError } = await supabase
+      .from('order_items')
+      .delete()
+      .in('batch_id', draftBatchIds);
+
+    if (itemsDeleteError) {
+      throw new Error(`No se pudieron eliminar productos no enviados: ${itemsDeleteError.message}`);
+    }
+
+    const { error: batchesDeleteError } = await supabase
+      .from('order_batches')
+      .delete()
+      .in('id', draftBatchIds)
+      .eq('status', 'CREADO');
+
+    if (batchesDeleteError) {
+      throw new Error(`No se pudieron eliminar envíos no enviados: ${batchesDeleteError.message}`);
+    }
+  };
+
   const handleCloseMesa = async (order: any): Promise<void> => {
     if (!CURRENT_RESTAURANT?.id) {
       setErrorMsg("No hay restaurante seleccionado");
@@ -1780,7 +1905,9 @@ const OrdersPage: React.FC = () => {
     try {
       setClosingOrderId(order.id);
       setErrorMsg(null);
-      console.log('🔄 Cerrando mesa - Cambiando status a "CERRADO"...', order.id);
+      console.log('🔄 Cerrando mesa - limpiando borradores y cambiando status a "CERRADO"...', order.id);
+
+      await deleteDraftBatchesForClosedOrder(order);
 
       // Usar la nueva función RPC para cerrar la orden
       const { data: rpcResult, error: rpcError } = await supabase.rpc('close_order_as_cerrado', {
@@ -1934,7 +2061,7 @@ const OrdersPage: React.FC = () => {
           </p>
         </div>
         {/* Controles: Toggle y contador */}
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           {/* Botón Archivar (solo visible en vista Abiertas) */}
           {!showClosedOrders && (
             <button
@@ -1958,7 +2085,10 @@ const OrdersPage: React.FC = () => {
           {/* Toggle Switch */}
           <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-gray-100 shadow-sm">
             <button
-              onClick={() => updateURL({ closed: null })}
+              onClick={() => {
+                setArchivedPeriodMenuOpen(false);
+                updateURL({ closed: null });
+              }}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
                 !showClosedOrders
                   ? 'bg-indigo-600 text-white shadow-md'
@@ -1978,32 +2108,153 @@ const OrdersPage: React.FC = () => {
               <Archive size={14} /> Archivadas
             </button>
           </div>
-          <div className={`min-w-[200px] px-6 py-4 rounded-2xl border border-gray-100 shadow-sm ${
-            showClosedOrders 
-              ? 'bg-emerald-50 border-emerald-100' 
-              : 'bg-indigo-50 border-indigo-100'
-          }`}>
-            {toggleLoading ? (
-              <>
-                <div className="h-9 bg-gray-200 rounded-lg animate-pulse mb-2"></div>
-                <div className="h-3 bg-gray-200 rounded animate-pulse w-24"></div>
-              </>
-            ) : (
-              <>
-                <div className={`text-3xl font-black tracking-tighter ${
-                  showClosedOrders ? 'text-emerald-600' : 'text-indigo-600'
-                }`}>
-                  {orders.length}
+          {showClosedOrders && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setArchivedPeriodMenuOpen(open => !open)}
+                className="w-full md:w-auto bg-white border border-gray-100 shadow-sm rounded-2xl px-5 py-3 flex items-center justify-between gap-4 text-xs font-black uppercase tracking-widest text-gray-600 hover:text-emerald-600 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Calendar size={16} className="text-emerald-600" />
+                  Seleccionar período
+                </span>
+                <span className="flex items-center gap-2 text-emerald-600">
+                  {getArchivedPeriodLabel()}
+                  <ChevronDown size={16} className={`transition-transform ${archivedPeriodMenuOpen ? 'rotate-180' : ''}`} />
+                </span>
+              </button>
+
+              {archivedPeriodMenuOpen && (
+                <div className="absolute right-0 mt-3 w-full md:w-[360px] bg-white border border-gray-100 rounded-3xl shadow-xl z-20 p-3 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setArchivedPeriodMode('currentMonth');
+                      setArchivedSelectedMonth(new Date().getMonth());
+                      setArchivedSelectedYear(new Date().getFullYear());
+                      setArchivedPeriodMenuOpen(false);
+                    }}
+                    className={`w-full text-left px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
+                      archivedPeriodMode === 'currentMonth'
+                        ? 'bg-emerald-600 text-white'
+                        : 'text-gray-500 hover:bg-gray-50'
+                    }`}
+                  >
+                    Mes actual
+                  </button>
+
+                  <div className="p-3 rounded-2xl bg-gray-50 border border-gray-100 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const availableMonths = Array.from(archivedAvailableMonthsByYear[archivedSelectedYear] || []);
+                        if (availableMonths.length > 0 && !availableMonths.includes(archivedSelectedMonth)) {
+                          setArchivedSelectedMonth(Math.min(...availableMonths));
+                        }
+                        setArchivedPeriodMode('month');
+                      }}
+                      className={`w-full text-left text-xs font-black uppercase tracking-widest transition-colors ${
+                        archivedPeriodMode === 'month' ? 'text-emerald-600' : 'text-gray-500'
+                      }`}
+                    >
+                      Seleccionar mes
+                    </button>
+                    {archivedPeriodMode === 'month' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {MONTH_NAMES.map((month, index) => {
+                          const hasSales = archivedAvailableMonthsByYear[archivedSelectedYear]?.has(index) || false;
+                          const isSelected = archivedSelectedMonth === index;
+
+                          return (
+                            <button
+                              key={month}
+                              type="button"
+                              disabled={!hasSales}
+                              onClick={() => {
+                                if (!hasSales) return;
+                                setArchivedSelectedMonth(index);
+                                setArchivedPeriodMenuOpen(false);
+                              }}
+                              className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                                isSelected && hasSales
+                                  ? 'bg-emerald-600 text-white'
+                                  : hasSales
+                                    ? 'bg-white text-gray-600 hover:text-emerald-600 hover:bg-emerald-50'
+                                    : 'bg-white/40 text-gray-300 opacity-60 cursor-not-allowed'
+                              }`}
+                            >
+                              {month}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-gray-50 border border-gray-100 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setArchivedPeriodMode('year')}
+                      className={`w-full text-left text-xs font-black uppercase tracking-widest transition-colors ${
+                        archivedPeriodMode === 'year' ? 'text-emerald-600' : 'text-gray-500'
+                      }`}
+                    >
+                      Seleccionar año completo
+                    </button>
+                    {archivedPeriodMode === 'year' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {archivedAvailableYears.map(year => (
+                          <button
+                            key={year}
+                            type="button"
+                            onClick={() => {
+                              setArchivedSelectedYear(year);
+                              setArchivedPeriodMenuOpen(false);
+                            }}
+                            className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                              archivedSelectedYear === year
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-white text-gray-500 hover:text-emerald-600'
+                            }`}
+                          >
+                            {year}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className={`text-[10px] font-black uppercase tracking-widest mt-1 ${
-                  showClosedOrders ? 'text-emerald-600' : 'text-indigo-600'
-                }`}>
-                  {showClosedOrders ? 'Órdenes Archivadas' : 'Mesas Activas'}
-                </div>
-              </>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
+      </div>
+
+      <div className={`w-full px-6 py-4 rounded-2xl border border-gray-100 shadow-sm ${
+        showClosedOrders 
+          ? 'bg-emerald-50 border-emerald-100' 
+          : 'bg-indigo-50 border-indigo-100'
+      }`}>
+        {toggleLoading ? (
+          <div className="flex items-center gap-4">
+            <div className="h-9 w-16 bg-gray-200 rounded-lg animate-pulse"></div>
+            <div className="h-3 bg-gray-200 rounded animate-pulse w-40"></div>
+          </div>
+        ) : (
+          <div className="flex items-end gap-3">
+            <div className={`text-3xl font-black tracking-tighter leading-none ${
+              showClosedOrders ? 'text-emerald-600' : 'text-indigo-600'
+            }`}>
+              {orders.length}
+            </div>
+            <div className={`text-[10px] font-black uppercase tracking-widest ${
+              showClosedOrders ? 'text-emerald-600' : 'text-indigo-600'
+            }`}>
+              {showClosedOrders ? 'Órdenes Archivadas' : 'Mesas Activas'}
+            </div>
+          </div>
+        )}
       </div>
 
       {errorMsg && (() => {
