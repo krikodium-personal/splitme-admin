@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Star, MessageSquareQuote, TrendingUp, Users, Utensils, 
-  Clock, ArrowUpRight, ArrowDownRight, User, Loader2, AlertCircle,
-  Trophy, MessageCircle, BarChart3, AlertTriangle, ChevronRight, CheckCircle2
+  Star, MessageSquareQuote, Users, Utensils, 
+  User, Loader2, BarChart3, ChevronRight
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { CURRENT_RESTAURANT } from '../types';
@@ -21,6 +20,7 @@ interface Review {
 }
 
 interface RankedItem {
+  restaurant_id: string;
   plato_nombre: string;
   promedio: number;
   total_votos: number;
@@ -32,9 +32,10 @@ interface RankedWaiter {
   full_name: string;
   profile_photo_url: string;
   average_rating: number;
+  waiter_rating_count?: number;
 }
 
-type FeedbackTab = 'staff' | 'favorites' | 'improvements' | 'voices';
+type FeedbackTab = 'staff' | 'dishes' | 'voices';
 
 const FeedbackPage: React.FC = () => {
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -84,17 +85,39 @@ const FeedbackPage: React.FC = () => {
       if (reviewData) setReviews(reviewData as any);
 
       // 2. Ranking de Staff (desde reviews; fallback a waiters.average_rating si no hay reviews con rating)
-      const { data: waitersBase } = await supabase
+      let waitersBase: any[] | null = null;
+      const waitersWithCountResult = await supabase
         .from('waiters')
-        .select('id, nickname, full_name, profile_photo_url, average_rating')
+        .select('id, nickname, full_name, profile_photo_url, average_rating, waiter_rating_count')
         .eq('restaurant_id', restaurantId);
 
-      const { data: waiterReviews } = await supabase
+      if (waitersWithCountResult.error) {
+        const waitersFallbackResult = await supabase
+          .from('waiters')
+          .select('id, nickname, full_name, profile_photo_url, average_rating')
+          .eq('restaurant_id', restaurantId);
+
+        waitersBase = waitersFallbackResult.data;
+      } else {
+        waitersBase = waitersWithCountResult.data;
+      }
+
+      const { data: activeWaiterReviews } = await supabase
         .from('reviews')
         .select('waiter_id, waiter_rating')
         .eq('restaurant_id', restaurantId);
 
-      if (waitersBase && waiterReviews) {
+      const { data: archivedWaiterReviews } = await supabase
+        .from('reviews_archive')
+        .select('waiter_id, waiter_rating')
+        .eq('restaurant_id', restaurantId);
+
+      if (waitersBase) {
+        const waiterReviews = [
+          ...(activeWaiterReviews || []),
+          ...(archivedWaiterReviews || [])
+        ];
+
         const waiterStats = waitersBase.map(w => {
           // Solo reseñas con waiter_rating válido (no null, no vacío)
           const reviewsForW = waiterReviews.filter(
@@ -110,7 +133,8 @@ const FeedbackPage: React.FC = () => {
           }
           return {
             ...w,
-            average_rating: Math.round(avg * 10) / 10
+            average_rating: Math.round(avg * 10) / 10,
+            waiter_rating_count: reviewsForW.length || Number(w.waiter_rating_count) || 0
           };
         }).sort((a, b) => b.average_rating - a.average_rating);
 
@@ -131,18 +155,17 @@ const FeedbackPage: React.FC = () => {
         });
       }
 
-      // 4. Ranking de Platos desde la vista 'platos_rating_summary' (Consulta Directa)
+      // 4. Ranking de platos desde la vista consolidada de la base.
       const { data: dishData, error: dishError } = await supabase
         .from('platos_rating_summary')
-        .select('*')
+        .select('restaurant_id, plato_nombre, promedio, total_votos')
         .eq('restaurant_id', restaurantId);
 
-      // Verificación de datos recibidos (RLS Check)
-      console.log("DEBUG: Datos platos_rating_summary:", dishData, dishError);
-
-      if (dishData) {
-        setRankedItems(dishData);
+      if (dishError) {
+        console.error('Error al cargar platos_rating_summary:', dishError);
       }
+
+      setRankedItems((dishData || []) as RankedItem[]);
 
     } catch (err) {
       console.error("Error al cargar feedback:", err);
@@ -151,22 +174,12 @@ const FeedbackPage: React.FC = () => {
     }
   };
 
-  // Clasificación en frontend según umbrales solicitados (Favorites >= 4.0, Improvements < 3.5)
-  const topDishes = useMemo(() => 
-    rankedItems
-      .filter(item => item.promedio >= 4.0)
-      .sort((a, b) => b.promedio - a.promedio)
-      .slice(0, 10), 
+  const dishRatings = useMemo(() => 
+    [...rankedItems]
+      .sort((a, b) => b.promedio - a.promedio), 
   [rankedItems]);
 
-  const bottomDishes = useMemo(() => 
-    rankedItems
-      .filter(item => item.promedio < 3.5)
-      .sort((a, b) => a.promedio - b.promedio)
-      .slice(0, 10), 
-  [rankedItems]);
-
-  const renderStars = (rating: number, size = 14) => {
+  const renderStars = (rating: number, size = 14, activeColor = '#f59e0b', activeClass = 'text-amber-500') => {
     const r = Number(rating) || 0;
     const filled = Math.min(5, Math.round(r));
     return (
@@ -175,19 +188,48 @@ const FeedbackPage: React.FC = () => {
           <Star
             key={i}
             size={size}
-            fill={i < filled ? '#f59e0b' : 'none'}
-            className={i < filled ? 'text-amber-500' : 'text-gray-200'}
+            fill={i < filled ? activeColor : 'none'}
+            className={i < filled ? activeClass : 'text-gray-200'}
           />
         ))}
       </div>
     );
   };
 
+  const getDishRatingStyles = (rating: number) => {
+    if (rating >= 4) {
+      return {
+        cardClass: 'bg-emerald-50/50 border-l-4 border-emerald-500',
+        reviewClass: 'text-emerald-600',
+        scoreClass: 'text-emerald-700',
+        starClass: 'text-emerald-500',
+        starFill: '#10b981'
+      };
+    }
+
+    if (rating >= 3) {
+      return {
+        cardClass: 'bg-amber-50/60 border-l-4 border-amber-400',
+        reviewClass: 'text-amber-600',
+        scoreClass: 'text-amber-700',
+        starClass: 'text-amber-500',
+        starFill: '#f59e0b'
+      };
+    }
+
+    return {
+      cardClass: 'bg-rose-50/40 border-l-4 border-rose-500',
+      reviewClass: 'text-rose-500',
+      scoreClass: 'text-rose-600',
+      starClass: 'text-rose-500',
+      starFill: '#f43f5e'
+    };
+  };
+
   const feedbackTabs: Array<{ id: FeedbackTab; label: string; Icon: React.ComponentType<{ size?: number; className?: string }> }> = [
-    { id: 'staff', label: 'Ranking de staff', Icon: Users },
-    { id: 'favorites', label: 'Favoritos del público', Icon: Trophy },
-    { id: 'improvements', label: 'Oportunidad de mejora', Icon: AlertTriangle },
-    { id: 'voices', label: 'Muro de voces', Icon: MessageSquareQuote }
+    { id: 'staff', label: 'Meseros', Icon: Users },
+    { id: 'dishes', label: 'Platos', Icon: Utensils },
+    { id: 'voices', label: 'Reseñas', Icon: MessageSquareQuote }
   ];
 
   if (loading) {
@@ -225,8 +267,8 @@ const FeedbackPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-2 overflow-x-auto custom-scrollbar">
-        <div className="flex min-w-max gap-2">
+      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-2">
+        <div className="flex w-full gap-2">
           {feedbackTabs.map(({ id, label, Icon }) => {
             const isActive = activeTab === id;
 
@@ -235,7 +277,7 @@ const FeedbackPage: React.FC = () => {
                 key={id}
                 type="button"
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-3 rounded-[1.5rem] px-5 py-4 text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                className={`flex flex-1 min-w-0 items-center justify-center gap-3 rounded-[1.5rem] px-3 sm:px-5 py-4 text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${
                   isActive
                     ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100'
                     : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
@@ -258,7 +300,7 @@ const FeedbackPage: React.FC = () => {
             </div>
             <span className="text-[9px] font-black text-indigo-400 uppercase">Tiempo Real</span>
           </div>
-          <div className="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 overflow-y-auto max-h-[700px] custom-scrollbar">
+          <div className="p-6 grid grid-cols-1 gap-4 overflow-y-auto max-h-[700px] custom-scrollbar">
             {rankedWaiters.map((waiter, index) => (
               <div key={waiter.id} className="group flex items-center justify-between p-4 rounded-2xl border border-gray-100 hover:border-indigo-100 hover:bg-indigo-50/30 transition-all">
                 <div className="flex items-center gap-4">
@@ -277,6 +319,9 @@ const FeedbackPage: React.FC = () => {
                     <div className="flex items-center gap-2">
                       {renderStars(waiter.average_rating, 10)}
                       <span className="text-[10px] font-black text-indigo-600">{waiter.average_rating.toFixed(1)}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-tighter text-gray-400">
+                        {waiter.waiter_rating_count || 0} {(waiter.waiter_rating_count || 0) === 1 ? 'calificación' : 'calificaciones'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -284,71 +329,42 @@ const FeedbackPage: React.FC = () => {
               </div>
             ))}
             {rankedWaiters.length === 0 && (
-              <div className="md:col-span-2 xl:col-span-3 py-20 text-center text-gray-400 italic text-xs">No hay datos de staff aún</div>
+              <div className="py-20 text-center text-gray-400 italic text-xs">No hay datos de staff aún</div>
             )}
           </div>
         </div>
       )}
 
-      {activeTab === 'favorites' && (
+      {activeTab === 'dishes' && (
         <div className="bg-white rounded-[3rem] border border-gray-100 shadow-sm overflow-hidden flex flex-col animate-in fade-in duration-300">
           <div className="p-8 border-b border-gray-50 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Trophy className="text-amber-500" size={20} />
-              <h2 className="text-sm font-black uppercase tracking-widest">Favoritos del Público</h2>
+              <Utensils className="text-indigo-600" size={20} />
+              <h2 className="text-sm font-black uppercase tracking-widest">Calificación Platos</h2>
             </div>
-            <span className="text-[10px] font-black text-amber-500 uppercase">Top 10 (≥ 4.0)</span>
+            <span className="text-[10px] font-black text-indigo-600 uppercase">{dishRatings.length} platos rankeados</span>
           </div>
-          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto max-h-[600px] custom-scrollbar">
-            {topDishes.map((item) => (
-              <div key={item.plato_nombre} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border-l-4 border-amber-400 hover:shadow-md transition-shadow">
-                <div className="flex-1">
-                  <p className="text-xs font-black text-gray-900 line-clamp-1">{item.plato_nombre}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    {renderStars(item.promedio, 10)}
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">{item.total_votos} reseñas</span>
-                  </div>
-                </div>
-                <span className="text-sm font-black text-gray-900 ml-4">{item.promedio.toFixed(1)}</span>
-              </div>
-            ))}
-            {topDishes.length === 0 && (
-              <div className="md:col-span-2 py-20 text-center text-gray-400 italic text-sm">Sin datos suficientes</div>
-            )}
-          </div>
-        </div>
-      )}
+          <div className="p-6 grid grid-cols-1 gap-4 overflow-y-auto max-h-[700px] custom-scrollbar">
+            {dishRatings.map((item) => {
+              const styles = getDishRatingStyles(Number(item.promedio) || 0);
 
-      {activeTab === 'improvements' && (
-        <div className="bg-white rounded-[3rem] border border-gray-100 shadow-sm overflow-hidden flex flex-col animate-in fade-in duration-300">
-          <div className="p-8 border-b border-gray-50 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="text-rose-500" size={20} />
-              <h2 className="text-sm font-black uppercase tracking-widest">Oportunidad de Mejora</h2>
-            </div>
-            <span className="text-[10px] font-black text-rose-500 uppercase">Debajo de 3.5</span>
-          </div>
-          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto max-h-[600px] custom-scrollbar">
-            {bottomDishes.map((item) => (
-              <div key={item.plato_nombre} className="flex items-center justify-between p-4 bg-rose-50/30 rounded-2xl border-l-4 border-rose-500 hover:shadow-md transition-shadow">
-                <div className="flex-1">
-                  <p className="text-xs font-black text-gray-900 line-clamp-1">{item.plato_nombre}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    {renderStars(item.promedio, 10)}
-                    <span className="text-[10px] font-bold text-rose-400 uppercase tracking-tighter">{item.total_votos} reseñas</span>
+              return (
+                <div key={`${item.restaurant_id}-${item.plato_nombre}`} className={`flex items-center justify-between p-4 rounded-2xl hover:shadow-md transition-shadow ${styles.cardClass}`}>
+                  <div className="flex-1">
+                    <p className="text-xs font-black text-gray-900 line-clamp-1">{item.plato_nombre}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {renderStars(item.promedio, 10, styles.starFill, styles.starClass)}
+                      <span className={`text-[10px] font-bold uppercase tracking-tighter ${styles.reviewClass}`}>
+                        {item.total_votos} {item.total_votos === 1 ? 'calificación' : 'calificaciones'}
+                      </span>
+                    </div>
                   </div>
+                  <span className={`text-sm font-black ml-4 ${styles.scoreClass}`}>{item.promedio.toFixed(1)}</span>
                 </div>
-                <span className="text-sm font-black text-rose-600 ml-4">{item.promedio.toFixed(1)}</span>
-              </div>
-            ))}
-            {bottomDishes.length === 0 && rankedItems.length > 0 && (
-              <div className="md:col-span-2 flex flex-col items-center justify-center py-20 text-center px-6">
-                <CheckCircle2 size={32} className="text-emerald-400 mb-2" />
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">¡Todos tus platos superan el estándar!</p>
-              </div>
-            )}
-            {rankedItems.length === 0 && (
-              <div className="md:col-span-2 py-20 text-center text-gray-400 italic text-sm">Sin datos suficientes</div>
+              );
+            })}
+            {dishRatings.length === 0 && (
+              <div className="py-20 text-center text-gray-400 italic text-sm">Sin datos suficientes</div>
             )}
           </div>
         </div>
