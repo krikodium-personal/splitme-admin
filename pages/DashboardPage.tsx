@@ -3,16 +3,37 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { 
   DollarSign, Receipt, Utensils, TrendingUp, Loader2, Calendar, 
-  LayoutDashboard, ShoppingBag, Clock, Users, Trophy, Grid3X3
+  LayoutDashboard, ShoppingBag, Clock, Users, Trophy, Grid3X3, ChevronDown
 } from 'lucide-react';
 import { CURRENT_RESTAURANT } from '../types';
 
-type TimeRange = 'weekly' | 'monthly' | 'yearly' | 'historical';
+type PeriodMode = 'currentMonth' | 'month' | 'year';
+
+const MONTH_NAMES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre'
+];
 
 const DashboardPage: React.FC = () => {
+  const now = new Date();
   const [stats, setStats] = useState({ dishes: 0, orders: 0, sales: 0, historicalSales: 0 });
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState<TimeRange>('monthly');
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('currentMonth');
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const [availableYears, setAvailableYears] = useState<number[]>([now.getFullYear()]);
+  const [availableMonthsByYear, setAvailableMonthsByYear] = useState<Record<number, Set<number>>>({});
+  const [periodMenuOpen, setPeriodMenuOpen] = useState(false);
   const [popularDishes, setPopularDishes] = useState<Array<{menu_item_id: string, name: string, total_quantity: number}>>([]);
   const [popularDishesLoading, setPopularDishesLoading] = useState(true);
   const [averageServiceTime, setAverageServiceTime] = useState<number | null>(null);
@@ -25,7 +46,7 @@ const DashboardPage: React.FC = () => {
     fetchStats();
     fetchPopularDishes();
     fetchAverageServiceTime();
-  }, [timeRange]);
+  }, [periodMode, selectedMonth, selectedYear]);
 
   useEffect(() => {
     fetchTableOccupancy();
@@ -57,20 +78,35 @@ const DashboardPage: React.FC = () => {
     }).format(value).replace('CLP', '$').trim();
   };
 
-  const getRangeStartDate = () => {
-    const now = new Date();
+  const getPeriodRange = () => {
+    const current = new Date();
 
-    if (timeRange === 'weekly') {
-      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    }
-    if (timeRange === 'monthly') {
-      return new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-    }
-    if (timeRange === 'yearly') {
-      return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+    if (periodMode === 'year') {
+      return {
+        start: new Date(selectedYear, 0, 1),
+        end: new Date(selectedYear + 1, 0, 1)
+      };
     }
 
-    return null;
+    const year = periodMode === 'currentMonth' ? current.getFullYear() : selectedYear;
+    const month = periodMode === 'currentMonth' ? current.getMonth() : selectedMonth;
+
+    return {
+      start: new Date(year, month, 1),
+      end: new Date(year, month + 1, 1)
+    };
+  };
+
+  const getPeriodLabel = () => {
+    if (periodMode === 'currentMonth') return 'Mes actual';
+    if (periodMode === 'month') return `${MONTH_NAMES[selectedMonth]} ${selectedYear}`;
+    return `${selectedYear}`;
+  };
+
+  const isWithinPeriod = (dateValue: string) => {
+    const { start, end } = getPeriodRange();
+    const date = new Date(dateValue);
+    return date >= start && date < end;
   };
 
   const calculatePaidSales = (orders: any[], payments: any[]) => {
@@ -93,6 +129,149 @@ const DashboardPage: React.FC = () => {
     }, 0);
   };
 
+  const isMissingRpcError = (error: any) =>
+    error?.code === 'PGRST202' || error?.message?.includes('Could not find the function');
+
+  const fetchArchivedOrders = async (restaurantId: string) => {
+    const { data: myRpcData, error: myRpcError } = await supabase.rpc('admin_get_my_orders_archive');
+    if (!myRpcError) return myRpcData || [];
+    if (!isMissingRpcError(myRpcError)) throw myRpcError;
+
+    const { data: rpcData, error: rpcError } = await supabase.rpc('admin_get_orders_archive', {
+      p_restaurant_id: restaurantId
+    });
+    if (!rpcError) return rpcData || [];
+    if (!isMissingRpcError(rpcError)) throw rpcError;
+
+    const { data, error } = await supabase
+      .from('orders_archive')
+      .select('*')
+      .eq('restaurant_id', restaurantId);
+    if (error) throw error;
+    return data || [];
+  };
+
+  const fetchArchivedPayments = async (restaurantId: string, orderIds: string[]) => {
+    if (orderIds.length === 0) return [];
+
+    const { data: myRpcData, error: myRpcError } = await supabase.rpc('admin_get_my_payments_archive');
+    if (!myRpcError) return (myRpcData || []).filter((payment: any) => orderIds.includes(payment.order_id));
+    if (!isMissingRpcError(myRpcError)) throw myRpcError;
+
+    const { data: rpcData, error: rpcError } = await supabase.rpc('admin_get_payments_archive', {
+      p_restaurant_id: restaurantId
+    });
+    if (!rpcError) return (rpcData || []).filter((payment: any) => orderIds.includes(payment.order_id));
+    if (!isMissingRpcError(rpcError)) throw rpcError;
+
+    const { data, error } = await supabase
+      .from('payments_archive')
+      .select('order_id, amount')
+      .in('order_id', orderIds);
+    if (error) throw error;
+    return data || [];
+  };
+
+  const fetchArchivedBatches = async (restaurantId: string, orderIds: string[]) => {
+    if (orderIds.length === 0) return [];
+
+    const { data: myRpcData, error: myRpcError } = await supabase.rpc('admin_get_my_order_batches_archive');
+    if (!myRpcError) return (myRpcData || []).filter((batch: any) => orderIds.includes(batch.order_id));
+    if (!isMissingRpcError(myRpcError)) throw myRpcError;
+
+    const { data: rpcData, error: rpcError } = await supabase.rpc('admin_get_order_batches_archive', {
+      p_restaurant_id: restaurantId
+    });
+    if (!rpcError) return (rpcData || []).filter((batch: any) => orderIds.includes(batch.order_id));
+    if (!isMissingRpcError(rpcError)) throw rpcError;
+
+    const { data, error } = await supabase
+      .from('order_batches_archive')
+      .select('*')
+      .in('order_id', orderIds);
+    if (error) throw error;
+    return data || [];
+  };
+
+  const fetchArchivedItems = async (restaurantId: string, batchIds: string[]) => {
+    if (batchIds.length === 0) return [];
+
+    const { data: myRpcData, error: myRpcError } = await supabase.rpc('admin_get_my_order_items_archive');
+    if (!myRpcError) return (myRpcData || []).filter((item: any) => batchIds.includes(item.batch_id));
+    if (!isMissingRpcError(myRpcError)) throw myRpcError;
+
+    const { data: rpcData, error: rpcError } = await supabase.rpc('admin_get_order_items_archive', {
+      p_restaurant_id: restaurantId
+    });
+    if (!rpcError) return (rpcData || []).filter((item: any) => batchIds.includes(item.batch_id));
+    if (!isMissingRpcError(rpcError)) throw rpcError;
+
+    const { data, error } = await supabase
+      .from('order_items_archive')
+      .select('*')
+      .in('batch_id', batchIds);
+    if (error) throw error;
+    return data || [];
+  };
+
+  const fetchAvailableYears = async () => {
+    const restaurantId = CURRENT_RESTAURANT?.id;
+    if (!restaurantId) return;
+
+    try {
+      const { data: activeOrders, error: activeOrdersError } = await supabase
+        .from('orders')
+        .select('created_at')
+        .eq('restaurant_id', restaurantId);
+
+      if (activeOrdersError) throw activeOrdersError;
+
+      const archivedOrders = await fetchArchivedOrders(restaurantId);
+      const ordersWithDates = [
+        ...(activeOrders || []),
+        ...(archivedOrders || [])
+      ];
+      const monthsByYear: Record<number, Set<number>> = {};
+
+      ordersWithDates.forEach((order: any) => {
+        const date = new Date(order.created_at);
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        if (!Number.isFinite(year) || !Number.isFinite(month)) return;
+
+        monthsByYear[year] = monthsByYear[year] || new Set<number>();
+        monthsByYear[year].add(month);
+      });
+
+      const years = Object.keys(monthsByYear).map(Number);
+
+      const uniqueYears = Array.from(new Set([...years, new Date().getFullYear()]))
+        .sort((a, b) => b - a);
+
+      setAvailableYears(uniqueYears);
+      setAvailableMonthsByYear(monthsByYear);
+      if (!uniqueYears.includes(selectedYear)) {
+        setSelectedYear(uniqueYears[0] || new Date().getFullYear());
+      }
+    } catch (err) {
+      console.error('Error al cargar años disponibles:', err);
+      setAvailableYears([new Date().getFullYear()]);
+    }
+  };
+
+  useEffect(() => {
+    fetchAvailableYears();
+  }, [CURRENT_RESTAURANT?.id]);
+
+  useEffect(() => {
+    if (periodMode !== 'month') return;
+
+    const availableMonths = Array.from(availableMonthsByYear[selectedYear] || []);
+    if (availableMonths.length === 0 || availableMonths.includes(selectedMonth)) return;
+
+    setSelectedMonth(Math.min(...availableMonths));
+  }, [periodMode, selectedMonth, selectedYear, availableMonthsByYear]);
+
   const fetchStats = async () => {
     const restaurantId = CURRENT_RESTAURANT?.id;
     if (!restaurantId) {
@@ -109,7 +288,7 @@ const DashboardPage: React.FC = () => {
         .select('*', { count: 'exact', head: true })
         .eq('restaurant_id', restaurantId);
 
-      const startDate = getRangeStartDate();
+      const { start, end } = getPeriodRange();
 
       const { data: activeOrdersData, error: activeOrdersError } = await supabase
         .from('orders')
@@ -120,22 +299,16 @@ const DashboardPage: React.FC = () => {
         throw activeOrdersError;
       }
 
-      const { data: archivedOrdersData, error: archivedOrdersError } = await supabase
-        .from('orders_archive')
-        .select('id, status, total_amount, created_at')
-        .eq('restaurant_id', restaurantId);
-
-      if (archivedOrdersError) {
-        throw archivedOrdersError;
-      }
+      const archivedOrdersData = await fetchArchivedOrders(restaurantId);
 
       const allOrders = [
         ...(activeOrdersData || []),
         ...(archivedOrdersData || [])
       ];
-      const rangeOrders = startDate
-        ? allOrders.filter((order: any) => new Date(order.created_at) >= startDate)
-        : allOrders;
+      const rangeOrders = allOrders.filter((order: any) => {
+        const date = new Date(order.created_at);
+        return date >= start && date < end;
+      });
       const allOrderIds = allOrders.map((order: any) => order.id);
 
       let activePaymentsData: any[] = [];
@@ -151,17 +324,8 @@ const DashboardPage: React.FC = () => {
           throw activePaymentsError;
         }
 
-        const { data: archivedPayments, error: archivedPaymentsError } = await supabase
-          .from('payments_archive')
-          .select('order_id, amount')
-          .in('order_id', allOrderIds);
-
-        if (archivedPaymentsError) {
-          throw archivedPaymentsError;
-        }
-
         activePaymentsData = activePayments || [];
-        archivedPaymentsData = archivedPayments || [];
+        archivedPaymentsData = await fetchArchivedPayments(restaurantId, allOrderIds);
       }
 
       const allPayments = [
@@ -203,19 +367,7 @@ const DashboardPage: React.FC = () => {
 
     setPopularDishesLoading(true);
     try {
-      // Calcular fecha de inicio según el rango de tiempo
-      const now = new Date();
-      let startDate: Date;
-      
-      if (timeRange === 'weekly') {
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      } else if (timeRange === 'monthly') {
-        startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-      } else if (timeRange === 'yearly') {
-        startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-      } else {
-        startDate = new Date(0); // Historical = todo
-      }
+      const { start, end } = getPeriodRange();
 
       // Obtener IDs de órdenes del restaurante para filtrar items
       let ordersQuery = supabase
@@ -223,18 +375,13 @@ const DashboardPage: React.FC = () => {
         .select('id, created_at')
         .eq('restaurant_id', restaurantId);
 
-      let archivedOrdersQuery = supabase
-        .from('orders_archive')
-        .select('id, created_at')
-        .eq('restaurant_id', restaurantId);
-
-      if (timeRange !== 'historical') {
-        ordersQuery = ordersQuery.gte('created_at', startDate.toISOString());
-        archivedOrdersQuery = archivedOrdersQuery.gte('created_at', startDate.toISOString());
-      }
+      ordersQuery = ordersQuery
+        .gte('created_at', start.toISOString())
+        .lt('created_at', end.toISOString());
 
       const { data: orders } = await ordersQuery;
-      const { data: archivedOrders } = await archivedOrdersQuery;
+      const archivedOrders = (await fetchArchivedOrders(restaurantId))
+        .filter((order: any) => isWithinPeriod(order.created_at));
 
       const orderIds = [...(orders || []).map(o => o.id), ...(archivedOrders || []).map(o => o.id)];
 
@@ -250,10 +397,7 @@ const DashboardPage: React.FC = () => {
         .select('id, order_id')
         .in('order_id', orderIds);
 
-      const { data: archivedBatches } = await supabase
-        .from('order_batches_archive')
-        .select('id, order_id')
-        .in('order_id', orderIds);
+      const archivedBatches = await fetchArchivedBatches(restaurantId, orderIds);
 
       const batchIds = [
         ...(batches || []).map(b => b.id),
@@ -274,11 +418,8 @@ const DashboardPage: React.FC = () => {
         .not('menu_item_id', 'is', null);
 
       // Obtener items archivados
-      const { data: archivedItems } = await supabase
-        .from('order_items_archive')
-        .select('menu_item_id, quantity')
-        .in('batch_id', batchIds)
-        .not('menu_item_id', 'is', null);
+      const archivedItems = (await fetchArchivedItems(restaurantId, batchIds))
+        .filter((item: any) => item.menu_item_id);
 
       // Combinar todos los items
       const allItems = [
@@ -350,19 +491,7 @@ const DashboardPage: React.FC = () => {
 
     setServiceTimeLoading(true);
     try {
-      // Calcular fecha de inicio según el rango de tiempo
-      const now = new Date();
-      let startDate: Date;
-      
-      if (timeRange === 'weekly') {
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      } else if (timeRange === 'monthly') {
-        startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-      } else if (timeRange === 'yearly') {
-        startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-      } else {
-        startDate = new Date(0); // Historical = todo
-      }
+      const { start, end } = getPeriodRange();
 
       // Obtener IDs de órdenes del restaurante
       let ordersQuery = supabase
@@ -370,18 +499,13 @@ const DashboardPage: React.FC = () => {
         .select('id')
         .eq('restaurant_id', restaurantId);
 
-      let archivedOrdersQuery = supabase
-        .from('orders_archive')
-        .select('id')
-        .eq('restaurant_id', restaurantId);
-
-      if (timeRange !== 'historical') {
-        ordersQuery = ordersQuery.gte('created_at', startDate.toISOString());
-        archivedOrdersQuery = archivedOrdersQuery.gte('created_at', startDate.toISOString());
-      }
+      ordersQuery = ordersQuery
+        .gte('created_at', start.toISOString())
+        .lt('created_at', end.toISOString());
 
       const { data: orders } = await ordersQuery;
-      const { data: archivedOrders } = await archivedOrdersQuery;
+      const archivedOrders = (await fetchArchivedOrders(restaurantId))
+        .filter((order: any) => isWithinPeriod(order.created_at));
 
       const orderIds = [...(orders || []).map(o => o.id), ...(archivedOrders || []).map(o => o.id)];
 
@@ -398,11 +522,8 @@ const DashboardPage: React.FC = () => {
         .eq('status', 'SERVIDO')
         .in('order_id', orderIds);
 
-      const { data: archivedBatches } = await supabase
-        .from('order_batches_archive')
-        .select('id, created_at, served_at, status, order_id')
-        .eq('status', 'SERVIDO')
-        .in('order_id', orderIds);
+      const archivedBatches = (await fetchArchivedBatches(restaurantId, orderIds))
+        .filter((batch: any) => batch.status === 'SERVIDO');
 
       // Combinar todos los batches
       const allBatches = [
@@ -416,15 +537,9 @@ const DashboardPage: React.FC = () => {
         return;
       }
 
-      // Filtrar por rango de tiempo si no es histórico
-      let filteredBatches = allBatches;
-      if (timeRange !== 'historical') {
-        filteredBatches = allBatches.filter((batch: any) => {
-          if (!batch.created_at) return false;
-          const batchDate = new Date(batch.created_at);
-          return batchDate >= startDate;
-        });
-      }
+      const filteredBatches = allBatches.filter((batch: any) => (
+        batch.created_at && isWithinPeriod(batch.created_at)
+      ));
 
       if (filteredBatches.length === 0) {
         setAverageServiceTime(null);
@@ -522,18 +637,123 @@ const DashboardPage: React.FC = () => {
           <p className="text-gray-500 font-medium">Métricas de rendimiento y salud de tu negocio</p>
         </div>
 
-        <div className="bg-white p-1 rounded-2xl border border-gray-100 flex gap-1 shadow-sm">
-          {(['weekly', 'monthly', 'yearly', 'historical'] as TimeRange[]).map((range) => (
-            <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                timeRange === range ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'
-              }`}
-            >
-              {range === 'weekly' ? 'Semana' : range === 'monthly' ? 'Mes' : range === 'yearly' ? 'Año' : 'Histórico'}
-            </button>
-          ))}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setPeriodMenuOpen(open => !open)}
+            className="w-full md:w-auto bg-white border border-gray-100 shadow-sm rounded-2xl px-5 py-3 flex items-center justify-between gap-4 text-xs font-black uppercase tracking-widest text-gray-600 hover:text-indigo-600 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Calendar size={16} className="text-indigo-600" />
+              Seleccionar período
+            </span>
+            <span className="flex items-center gap-2 text-indigo-600">
+              {getPeriodLabel()}
+              <ChevronDown size={16} className={`transition-transform ${periodMenuOpen ? 'rotate-180' : ''}`} />
+            </span>
+          </button>
+
+          {periodMenuOpen && (
+            <div className="absolute right-0 mt-3 w-full md:w-[360px] bg-white border border-gray-100 rounded-3xl shadow-xl z-20 p-3 space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPeriodMode('currentMonth');
+                  setSelectedMonth(new Date().getMonth());
+                  setSelectedYear(new Date().getFullYear());
+                  setPeriodMenuOpen(false);
+                }}
+                className={`w-full text-left px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
+                  periodMode === 'currentMonth'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                Mes actual
+              </button>
+
+              <div className="p-3 rounded-2xl bg-gray-50 border border-gray-100 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const availableMonths = Array.from(availableMonthsByYear[selectedYear] || []);
+                    if (availableMonths.length > 0 && !availableMonths.includes(selectedMonth)) {
+                      setSelectedMonth(Math.min(...availableMonths));
+                    }
+                    setPeriodMode('month');
+                  }}
+                  className={`w-full text-left text-xs font-black uppercase tracking-widest transition-colors ${
+                    periodMode === 'month' ? 'text-indigo-600' : 'text-gray-500'
+                  }`}
+                >
+                  Seleccionar mes
+                </button>
+                {periodMode === 'month' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {MONTH_NAMES.map((month, index) => {
+                      const hasSales = availableMonthsByYear[selectedYear]?.has(index) || false;
+                      const isSelected = selectedMonth === index;
+
+                      return (
+                        <button
+                          key={month}
+                          type="button"
+                          disabled={!hasSales}
+                          onClick={() => {
+                            if (!hasSales) return;
+                            setSelectedMonth(index);
+                            setPeriodMenuOpen(false);
+                          }}
+                          className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                            isSelected && hasSales
+                              ? 'bg-indigo-600 text-white'
+                              : hasSales
+                                ? 'bg-white text-gray-600 hover:text-indigo-600 hover:bg-indigo-50'
+                                : 'bg-white/40 text-gray-300 opacity-60 cursor-not-allowed'
+                          }`}
+                        >
+                          {month}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3 rounded-2xl bg-gray-50 border border-gray-100 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setPeriodMode('year')}
+                  className={`w-full text-left text-xs font-black uppercase tracking-widest transition-colors ${
+                    periodMode === 'year' ? 'text-indigo-600' : 'text-gray-500'
+                  }`}
+                >
+                  Seleccionar año completo
+                </button>
+                {periodMode === 'year' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {availableYears.map(year => (
+                      <button
+                        key={year}
+                        type="button"
+                        onClick={() => {
+                          setSelectedYear(year);
+                          setPeriodMenuOpen(false);
+                        }}
+                        className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                          selectedYear === year
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-white text-gray-500 hover:text-indigo-600'
+                        }`}
+                      >
+                        {year}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -553,12 +773,10 @@ const DashboardPage: React.FC = () => {
                 <span className="text-4xl font-black text-gray-900 tracking-tighter">
                   {formatCurrency(stats.sales)}
                 </span>
-                {timeRange !== 'historical' && (
-                  <div className="flex items-center gap-1.5 mt-2 text-emerald-600 font-bold text-xs">
-                    <TrendingUp size={14} />
-                    <span>{getPercentageOfHistorical()}% del total histórico</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-1.5 mt-2 text-emerald-600 font-bold text-xs">
+                  <TrendingUp size={14} />
+                  <span>{getPercentageOfHistorical()}% del total histórico</span>
+                </div>
               </div>
             )}
           </div>
@@ -687,12 +905,7 @@ const DashboardPage: React.FC = () => {
                  <p className="text-5xl font-black text-indigo-600 tracking-tighter mb-2">
                    {formatServiceTime(averageServiceTime)}
                  </p>
-                 <p className="text-xs text-gray-500">
-                   {timeRange === 'weekly' ? 'Última semana' : 
-                    timeRange === 'monthly' ? 'Último mes' : 
-                    timeRange === 'yearly' ? 'Último año' : 
-                    'Histórico'}
-                 </p>
+                 <p className="text-xs text-gray-500">{getPeriodLabel()}</p>
                </div>
              </div>
            ) : (
