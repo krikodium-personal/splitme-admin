@@ -338,16 +338,27 @@ const OrderGroupCard: React.FC<{
   const batchesToCheck = allBatches.filter((b: any) => b.status !== 'CREADO');
   const allBatchesServed = batchesToCheck.length === 0 || batchesToCheck.every((b: any) => b.status === 'SERVIDO');
 
-  // Total pagado: preferir suma de payments (por batch). Fallback a individual_amount de guests pagados.
-  const totalPaidFromPayments = (order.orderPayments || []).reduce((s: number, p: any) => s + (Number(p.amount) || Number(p.total_amount) || 0), 0);
-  const totalPaidAmount = totalPaidFromPayments > 0
-    ? totalPaidFromPayments
-    : orderGuests.filter((g: any) => g.paid === true).reduce((sum: number, g: any) => sum + (Number(g.individual_amount) || 0), 0);
+  // Total pagado: sumar payments registrados y completar con order_guests pagados
+  // que todavía no tengan payment asociado, sin duplicar comensales.
+  const orderPayments = order.orderPayments || [];
+  const paidGuestIdsWithPayments = new Set(
+    orderPayments
+      .filter((p: any) => (Number(p.amount) || Number(p.total_amount) || 0) > 0)
+      .map((p: any) => p.guest_id)
+      .filter(Boolean)
+  );
+  const totalPaidFromPayments = orderPayments.reduce((s: number, p: any) => s + (Number(p.amount) || Number(p.total_amount) || 0), 0);
+  const totalPaidFromGuestsWithoutPayments = orderGuests
+    .filter((g: any) => g.paid === true && !paidGuestIdsWithPayments.has(g.id))
+    .reduce((sum: number, g: any) => sum + (Number(g.individual_amount) || 0), 0);
+  const totalPaidAmount = totalPaidFromPayments + totalPaidFromGuestsWithoutPayments;
 
   const totalAmount = orderTotal;
   // Tolerancia para redondeos: al menos 1 unidad o 0.5% del total (útil en CLP y otros)
   const amountTolerance = Math.max(1, totalAmount * 0.005);
   const isTotalAmountPaid = totalAmount > 0 && Math.abs(totalPaidAmount - totalAmount) <= amountTolerance;
+  const rawOutstandingAmount = totalAmount - totalPaidAmount;
+  const outstandingAmount = Math.abs(rawOutstandingAmount) <= amountTolerance ? 0 : Math.max(0, rawOutstandingAmount);
 
   // Todos los guests con individual_amount > 0 tienen paid=TRUE (todos los que debían pagar ya pagaron)
   const allGuestsWithAmountPaid = orderGuests
@@ -421,7 +432,7 @@ const OrderGroupCard: React.FC<{
                     </span>
                     {!propIsClosed && !isMesaCerrada && (
                       <span className="px-3 py-0.5 bg-red-600 text-white rounded-full text-xs font-medium tracking-tighter shadow-sm animate-in zoom-in-95">
-                        ${Math.max(0, orderTotal - totalPaidAmount).toLocaleString('es-CL')} a saldar
+                        ${outstandingAmount.toLocaleString('es-CL')} a saldar
                       </span>
                     )}
                   </>
@@ -508,8 +519,8 @@ const OrderGroupCard: React.FC<{
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Total Acumulado</p>
               <p className="text-2xl font-black text-indigo-600 tracking-tighter">${orderTotal.toLocaleString('es-CL')}</p>
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5 mt-2">Diferencia a saldar</p>
-              <p className={`text-xl font-black tracking-tighter ${(orderTotal - totalPaidAmount) > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                ${Math.max(0, orderTotal - totalPaidAmount).toLocaleString('es-CL')}
+              <p className={`text-xl font-black tracking-tighter ${outstandingAmount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                ${outstandingAmount.toLocaleString('es-CL')}
               </p>
             </div>
             <div className="px-4 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-indigo-100">
