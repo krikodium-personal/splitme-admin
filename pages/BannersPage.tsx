@@ -2,28 +2,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
 import { CURRENT_RESTAURANT } from '../types';
-import { Trash2, GripVertical, Upload, Plus, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Trash2, GripVertical, Upload, Plus, Eye, EyeOff, Loader2, Check, X } from 'lucide-react';
 
 interface Banner {
   id: string;
   restaurant_id: string;
   image_url: string;
+  title: string | null;
+  description: string | null;
   sort_order: number;
   active: boolean;
   created_at: string;
 }
 
+type EditingField = { id: string; field: 'title' | 'description' };
+
 const BannersPage: React.FC = () => {
   const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [editing, setEditing] = useState<EditingField | null>(null);
+  const [editValue, setEditValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
 
-  useEffect(() => {
-    fetchBanners();
-  }, []);
+  useEffect(() => { fetchBanners(); }, []);
 
   const fetchBanners = async () => {
     if (!CURRENT_RESTAURANT?.id) return;
@@ -73,22 +77,33 @@ const BannersPage: React.FC = () => {
     setBanners(prev => prev.filter(b => b.id !== banner.id));
   };
 
+  const startEditing = (banner: Banner, field: 'title' | 'description') => {
+    setEditing({ id: banner.id, field });
+    setEditValue(banner[field] || '');
+  };
+
+  const saveField = async () => {
+    if (!editing) return;
+    const { error } = await supabase.from('banners').update({ [editing.field]: editValue.trim() || null }).eq('id', editing.id);
+    if (!error) {
+      setBanners(prev => prev.map(b => b.id === editing.id ? { ...b, [editing.field]: editValue.trim() || null } : b));
+    }
+    setEditing(null);
+  };
+
   const handleDragStart = (index: number) => { dragItem.current = index; };
   const handleDragEnter = (index: number) => { dragOverItem.current = index; };
 
   const handleDragEnd = async () => {
     if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) {
-      dragItem.current = null;
-      dragOverItem.current = null;
-      return;
+      dragItem.current = null; dragOverItem.current = null; return;
     }
     const reordered = [...banners];
     const dragged = reordered.splice(dragItem.current, 1)[0];
     reordered.splice(dragOverItem.current, 0, dragged);
     const updated = reordered.map((b, i) => ({ ...b, sort_order: i }));
     setBanners(updated);
-    dragItem.current = null;
-    dragOverItem.current = null;
+    dragItem.current = null; dragOverItem.current = null;
     await Promise.all(updated.map(b => supabase.from('banners').update({ sort_order: b.sort_order }).eq('id', b.id)));
   };
 
@@ -124,7 +139,7 @@ const BannersPage: React.FC = () => {
           <p className="text-sm mt-1">PNG, JPG, WEBP — ancho recomendado: 800px+</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {banners.map((banner, index) => (
             <div
               key={banner.id}
@@ -133,33 +148,69 @@ const BannersPage: React.FC = () => {
               onDragEnter={() => handleDragEnter(index)}
               onDragEnd={handleDragEnd}
               onDragOver={e => e.preventDefault()}
-              className={`flex items-center gap-4 bg-white border border-gray-200 rounded-2xl p-3 shadow-sm cursor-grab active:cursor-grabbing transition-opacity ${!banner.active ? 'opacity-50' : ''}`}
+              className={`bg-white border border-gray-200 rounded-2xl p-4 shadow-sm transition-opacity ${!banner.active ? 'opacity-50' : ''}`}
             >
-              <GripVertical size={20} className="text-gray-300 shrink-0" />
-              <img
-                src={banner.image_url}
-                alt={`Banner ${index + 1}`}
-                className="w-32 h-16 object-cover rounded-xl shrink-0 bg-gray-100"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-700 truncate">Banner {index + 1}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{banner.active ? 'Visible' : 'Oculto'}</p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => toggleActive(banner)}
-                  className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-                  title={banner.active ? 'Ocultar' : 'Mostrar'}
-                >
-                  {banner.active ? <Eye size={18} /> : <EyeOff size={18} />}
-                </button>
-                <button
-                  onClick={() => deleteBanner(banner)}
-                  className="p-2 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-                  title="Eliminar"
-                >
-                  <Trash2 size={18} />
-                </button>
+              <div className="flex items-center gap-4">
+                <GripVertical size={20} className="text-gray-300 shrink-0 cursor-grab" />
+                <img
+                  src={banner.image_url}
+                  alt={`Banner ${index + 1}`}
+                  className="w-32 h-16 object-cover rounded-xl shrink-0 bg-gray-100"
+                />
+                <div className="flex-1 min-w-0 space-y-2">
+                  {/* Título */}
+                  {editing?.id === banner.id && editing.field === 'title' ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        autoFocus
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveField(); if (e.key === 'Escape') setEditing(null); }}
+                        className="flex-1 text-sm font-medium border border-indigo-300 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-indigo-400"
+                        placeholder="Título del banner"
+                      />
+                      <button onClick={saveField} className="p-1 text-green-600 hover:bg-green-50 rounded-lg"><Check size={16} /></button>
+                      <button onClick={() => setEditing(null)} className="p-1 text-gray-400 hover:bg-gray-100 rounded-lg"><X size={16} /></button>
+                    </div>
+                  ) : (
+                    <p
+                      className="text-sm font-semibold text-gray-800 cursor-pointer hover:text-indigo-600 truncate"
+                      onClick={() => startEditing(banner, 'title')}
+                    >
+                      {banner.title || <span className="text-gray-300 font-normal italic">+ Agregar título</span>}
+                    </p>
+                  )}
+                  {/* Descripción */}
+                  {editing?.id === banner.id && editing.field === 'description' ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        autoFocus
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveField(); if (e.key === 'Escape') setEditing(null); }}
+                        className="flex-1 text-xs border border-indigo-300 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-indigo-400"
+                        placeholder="Texto del banner"
+                      />
+                      <button onClick={saveField} className="p-1 text-green-600 hover:bg-green-50 rounded-lg"><Check size={16} /></button>
+                      <button onClick={() => setEditing(null)} className="p-1 text-gray-400 hover:bg-gray-100 rounded-lg"><X size={16} /></button>
+                    </div>
+                  ) : (
+                    <p
+                      className="text-xs text-gray-400 cursor-pointer hover:text-indigo-500 truncate"
+                      onClick={() => startEditing(banner, 'description')}
+                    >
+                      {banner.description || <span className="italic">+ Agregar texto</span>}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => toggleActive(banner)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors" title={banner.active ? 'Ocultar' : 'Mostrar'}>
+                    {banner.active ? <Eye size={18} /> : <EyeOff size={18} />}
+                  </button>
+                  <button onClick={() => deleteBanner(banner)} className="p-2 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors" title="Eliminar">
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
