@@ -261,15 +261,13 @@ const AiAnalysisPage: React.FC = () => {
     const bestWaiterAvg = waiterAvgs[0]?.avg ?? null;
     const worstWaiterAvg = waiterAvgs.length > 1 ? waiterAvgs[waiterAvgs.length - 1].avg : null;
 
-    // Producto estrella — mejor calificación cruzada con mayor cantidad de ventas
-    const eligibleItems = menuItems.filter(m => (m.times_ordered ?? 0) > 0 && (m.average_rating ?? 0) > 0);
-    const maxOrdered = Math.max(...eligibleItems.map(m => m.times_ordered ?? 0), 1);
-    const starItem = eligibleItems
-      .map(m => ({
-        ...m,
-        starScore: ((m.average_rating ?? 0) / 5) * 0.5 + ((m.times_ordered ?? 0) / maxOrdered) * 0.5,
-      }))
-      .sort((a, b) => b.starScore - a.starScore)[0] ?? null;
+    // Producto estrella — rating primero, ventas como desempate
+    const eligibleItems = menuItems.filter(m => (m.average_rating ?? 0) > 0 && (m.rating_count ?? 0) >= 1);
+    const starItem = [...eligibleItems].sort((a, b) => {
+      const ratingDiff = (b.average_rating ?? 0) - (a.average_rating ?? 0);
+      if (ratingDiff !== 0) return ratingDiff;
+      return (b.times_ordered ?? 0) - (a.times_ordered ?? 0);
+    })[0] ?? null;
     const topItem = starItem
       ? { name: starItem.name, qty: starItem.times_ordered ?? 0, rating: starItem.average_rating ?? 0 }
       : null;
