@@ -4,7 +4,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate, Navigate 
 import { 
   LayoutDashboard, PlusCircle, List, Settings, LogOut, ShoppingBag,
   Store, Users, Grid, AlertTriangle, Loader2, Globe, ShieldCheck, RefreshCw,
-  MessageSquareQuote, BarChart3, Bell, X, CheckCircle2, DollarSign, Menu, FolderTree, Image
+  MessageSquareQuote, BarChart3, Bell, X, CheckCircle2, DollarSign, Menu, FolderTree, Image, BrainCircuit
 } from 'lucide-react';
 import CreateItemPage from './pages/CreateItemPage';
 import MenuListPage from './pages/MenuListPage';
@@ -20,6 +20,7 @@ import RestaurantUsersPage from './pages/RestaurantUsersPage';
 import DashboardPage from './pages/DashboardPage';
 import FeedbackPage from './pages/FeedbackPage';
 import BannersPage from './pages/BannersPage';
+import AiAnalysisPage from './pages/AiAnalysisPage';
 import { Restaurant, Profile, setGlobalRestaurant } from './types';
 import { isSupabaseConfigured, supabase } from './supabase';
 
@@ -507,10 +508,16 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
                 label="Meseros" 
                 onMobileClick={() => setIsMobileMenuOpen(false)}
               />
-              <SidebarLink 
-                to="/feedback" 
-                icon={BarChart3} 
-                label="Calidad" 
+              <SidebarLink
+                to="/feedback"
+                icon={BarChart3}
+                label="Calidad"
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
+              <SidebarLink
+                to="/ai-analysis"
+                icon={BrainCircuit}
+                label="Análisis AI"
                 onMobileClick={() => setIsMobileMenuOpen(false)}
               />
               <SidebarLink 
@@ -603,6 +610,7 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
                 <SidebarLink to="/tables" icon={Grid} label="Mesas" />
                 <SidebarLink to="/waiters" icon={Users} label="Meseros" />
                 <SidebarLink to="/feedback" icon={BarChart3} label="Calidad" />
+                <SidebarLink to="/ai-analysis" icon={BrainCircuit} label="Análisis AI" />
                 <SidebarLink to="/create" icon={PlusCircle} label="Añadir" />
                 <SidebarLink to="/menu-structure" icon={FolderTree} label="Estructura menú" />
                 <SidebarLink to="/settings" icon={Settings} label="Configuración" />
@@ -729,6 +737,7 @@ const App: React.FC = () => {
                     <Route path="/tables" element={<TablesPage />} />
                     <Route path="/waiters" element={<WaitersPage />} />
                     <Route path="/feedback" element={<FeedbackPage />} />
+                    <Route path="/ai-analysis" element={<AiAnalysisPage />} />
                     <Route path="/menu-structure" element={<MenuStructurePage restaurant={restaurant} />} />
                     <Route path="/settings" element={<SettingsPage restaurant={restaurant} />} />
                     <Route path="*" element={<Navigate to="/" />} />
