@@ -4,7 +4,7 @@ import { CURRENT_RESTAURANT } from '../types';
 import {
   BrainCircuit, TrendingUp, Users, Star, ShoppingBag, DollarSign,
   Award, AlertTriangle, MessageSquare, ThumbsUp, ThumbsDown, Loader2,
-  Calendar, ChefHat, Zap, BarChart3, RefreshCw
+  Calendar, ChefHat, Zap, BarChart3, RefreshCw, Sparkles
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -62,48 +62,48 @@ interface AiMenuItem {
   times_ordered: number | null;
 }
 
-// ─── Archive helpers ──────────────────────────────────────────────────────────
-
-const isMissingRpc = (e: any) =>
-  e?.code === 'PGRST202' || e?.message?.includes('Could not find the function');
-
-// ─── NLP helpers ─────────────────────────────────────────────────────────────
+// ─── NLP config ──────────────────────────────────────────────────────────────
 
 const POSITIVE_WORDS = [
   'excelente', 'increíble', 'increible', 'delicioso', 'deliciosa', 'rápido', 'rapido',
   'amable', 'atento', 'atenta', 'perfecto', 'perfecta', 'buenísimo', 'buenisimo',
-  'rico', 'rica', 'espectacular', 'recomiendo', 'maravilloso', 'maravillosa',
-  'genial', 'bueno', 'buena', 'bien', 'feliz', 'contento', 'contenta', 'satisfecho',
-  'satisfecha', 'encantado', 'encantada', 'fantástico', 'fantastico', 'sabroso',
-  'sabrosa', 'fresco', 'fresca', 'caliente', 'puntual', 'correcto', 'correcta',
-  'agradable', '5 estrellas', 'top', 'nota 10', '10/10'
+  'rico', 'rica', 'riquísimo', 'riquísima', 'rique', 'espectacular', 'recomiendo',
+  'maravilloso', 'maravillosa', 'genial', 'bueno', 'buena', 'bien', 'encantó',
+  'encanto', 'impresionante', 'satisfecho', 'satisfecha', 'encantado', 'encantada',
+  'fantástico', 'fantastico', 'sabroso', 'sabrosa', 'fresco', 'fresca', 'puntual',
+  'agradable', 'top', 'buen', 'recomendable', 'me encantó', 'muy bueno', 'que lindo',
 ];
 
 const NEGATIVE_WORDS = [
-  'malo', 'mala', 'tarde', 'lento', 'lenta', 'frío', 'frio', 'frío', 'salado',
-  'salada', 'crudo', 'cruda', 'espera', 'demoró', 'demoro', 'demora', 'error',
-  'equivocado', 'equivocada', 'desagradable', 'pésimo', 'pesimo', 'horrible',
-  'asco', 'sucio', 'sucia', 'descuidado', 'descuidada', 'caro', 'cara', 'defraudó',
-  'decepcio', 'decepcion', 'mal', 'faltó', 'falto', 'olvidó', 'olvido', 'peor',
-  'problema', 'queja', 'raro', 'rara', 'extraño', 'insípido', 'insipido', 'aguado'
+  'malo', 'mala', 'tarde', 'lento', 'lenta', 'frío', 'frio', 'salado', 'salada',
+  'crudo', 'cruda', 'espera', 'demoró', 'demoro', 'demora', 'error', 'equivocado',
+  'equivocada', 'desagradable', 'pésimo', 'pesimo', 'horrible', 'asco', 'sucio',
+  'sucia', 'caro', 'cara', 'defraudó', 'decepcion', 'decepcio', 'mal', 'faltó',
+  'falto', 'olvidó', 'olvido', 'peor', 'problema', 'queja', 'raro', 'insípido',
+  'insipido', 'aguado', 'regular', 'mejorar', 'pobre', 'seco', 'seca',
 ];
 
-const THEMES = {
-  atencion: ['mesero', 'mesera', 'atención', 'atencion', 'servicio', 'trato', 'amable', 'amabilidad', 'educado', 'educada', 'sonrió', 'sonrio', 'ayudó', 'ayudo'],
-  comida: ['comida', 'plato', 'sabor', 'rico', 'rica', 'delicioso', 'deliciosa', 'fresco', 'fresca', 'cocina', 'ingredientes', 'porción', 'porcion', 'calidad', 'menú', 'menu'],
-  rapidez: ['rápido', 'rapido', 'lento', 'lenta', 'espera', 'tardó', 'tardo', 'tiempo', 'demora', 'demoró', 'demoro', 'ágil', 'agil', 'eficiente'],
+const THEMES: Record<string, string[]> = {
+  atencion: ['mesero', 'mesera', 'atención', 'atencion', 'servicio', 'trato', 'amable', 'amabilidad', 'educado', 'educada', 'sonrió', 'ayudó', 'ayudo', 'atento', 'atenta'],
+  comida:   ['comida', 'plato', 'sabor', 'rico', 'rica', 'delicioso', 'deliciosa', 'fresco', 'fresca', 'cocina', 'ingredientes', 'porción', 'porcion', 'calidad', 'menú', 'menu', 'riquísimo'],
+  rapidez:  ['rápido', 'rapido', 'lento', 'lenta', 'espera', 'tardó', 'tardo', 'tiempo', 'demora', 'demoró', 'demoro', 'ágil', 'agil', 'eficiente'],
   ambiente: ['ambiente', 'lugar', 'limpio', 'limpia', 'sucio', 'sucia', 'música', 'musica', 'decoración', 'decoracion', 'tranquilo', 'tranquila', 'cómodo', 'comodo', 'mesa'],
-  precio: ['precio', 'barato', 'barata', 'caro', 'cara', 'vale', 'cuesta', 'paga', 'económico', 'economico', 'relación', 'relacion'],
+  precio:   ['precio', 'barato', 'barata', 'caro', 'cara', 'vale', 'cuesta', 'paga', 'económico', 'economico', 'relación'],
+};
+
+const THEME_LABELS: Record<string, string> = {
+  atencion: 'Atención', comida: 'Comida', rapidez: 'Rapidez', ambiente: 'Ambiente', precio: 'Precio',
 };
 
 const MONTHS_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+const isMissingRpc = (e: any) =>
+  e?.code === 'PGRST202' || e?.message?.includes('Could not find the function');
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const AiAnalysisPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
-
-  // raw data
   const [orders, setOrders] = useState<AiOrder[]>([]);
   const [payments, setPayments] = useState<AiPayment[]>([]);
   const [orderItems, setOrderItems] = useState<AiOrderItem[]>([]);
@@ -119,108 +119,96 @@ const AiAnalysisPage: React.FC = () => {
     setLoading(true);
 
     try {
-      // 1. Active orders
+      // Orders: active + archived
       const { data: activeOrders } = await supabase
         .from('orders')
         .select('id, status, total_amount, created_at, guest_count, waiter_id')
         .eq('restaurant_id', restaurantId);
 
-      // 2. Archived orders
       let archivedOrders: AiOrder[] = [];
-      const { data: archO1, error: archO1Err } = await supabase.rpc('admin_get_orders_archive', { p_restaurant_id: restaurantId });
-      if (!archO1Err) {
-        archivedOrders = archO1 || [];
-      } else if (isMissingRpc(archO1Err)) {
-        const { data: archO2 } = await supabase.from('orders_archive').select('id, status, total_amount, created_at, guest_count, waiter_id').eq('restaurant_id', restaurantId);
-        archivedOrders = archO2 || [];
+      const { data: archO, error: archOErr } = await supabase.rpc('admin_get_orders_archive', { p_restaurant_id: restaurantId });
+      if (!archOErr) {
+        archivedOrders = archO || [];
+      } else if (isMissingRpc(archOErr)) {
+        const { data: archOFallback } = await supabase.from('orders_archive').select('id, status, total_amount, created_at, guest_count, waiter_id').eq('restaurant_id', restaurantId);
+        archivedOrders = archOFallback || [];
       }
 
       const allOrders: AiOrder[] = [...(activeOrders || []), ...archivedOrders];
       setOrders(allOrders);
-
       const allOrderIds = allOrders.map(o => o.id);
 
-      // 3. Payments (active + archived)
+      // Payments: active + archived
       let allPayments: AiPayment[] = [];
       if (allOrderIds.length > 0) {
-        const { data: activePayments } = await supabase
+        const { data: activePay } = await supabase
           .from('payments')
           .select('order_id, amount, payment_method')
           .in('order_id', allOrderIds);
 
-        let archivedPayments: AiPayment[] = [];
-        const { data: archP1, error: archP1Err } = await supabase.rpc('admin_get_payments_archive', { p_restaurant_id: restaurantId });
-        if (!archP1Err) {
-          archivedPayments = (archP1 || []).filter((p: any) => allOrderIds.includes(p.order_id));
-        } else if (isMissingRpc(archP1Err)) {
-          const { data: archP2 } = await supabase.from('payments_archive').select('order_id, amount, payment_method').in('order_id', allOrderIds);
-          archivedPayments = archP2 || [];
+        let archivedPay: AiPayment[] = [];
+        const { data: archP, error: archPErr } = await supabase.rpc('admin_get_payments_archive', { p_restaurant_id: restaurantId });
+        if (!archPErr) {
+          archivedPay = (archP || []).filter((p: any) => allOrderIds.includes(p.order_id));
+        } else if (isMissingRpc(archPErr)) {
+          const { data: archPFallback } = await supabase.from('payments_archive').select('order_id, amount, payment_method').in('order_id', allOrderIds);
+          archivedPay = archPFallback || [];
         }
-        allPayments = [...(activePayments || []), ...archivedPayments];
+        allPayments = [...(activePay || []), ...archivedPay];
       }
       setPayments(allPayments);
 
-      // 4. Order items (via batches)
+      // Order items (via batches)
       let allItems: AiOrderItem[] = [];
       if (allOrderIds.length > 0) {
-        // Get batches
-        let allBatches: AiOrderBatch[] = [];
-        const { data: activeBatches } = await supabase
-          .from('order_batches')
-          .select('id, order_id')
-          .in('order_id', allOrderIds);
+        const { data: activeBatches } = await supabase.from('order_batches').select('id, order_id').in('order_id', allOrderIds);
 
         let archivedBatches: AiOrderBatch[] = [];
-        const { data: archB1, error: archB1Err } = await supabase.rpc('admin_get_order_batches_archive', { p_restaurant_id: restaurantId });
-        if (!archB1Err) {
-          archivedBatches = (archB1 || []).filter((b: any) => allOrderIds.includes(b.order_id));
-        } else if (isMissingRpc(archB1Err)) {
-          const { data: archB2 } = await supabase.from('order_batches_archive').select('id, order_id').in('order_id', allOrderIds);
-          archivedBatches = archB2 || [];
+        const { data: archB, error: archBErr } = await supabase.rpc('admin_get_order_batches_archive', { p_restaurant_id: restaurantId });
+        if (!archBErr) {
+          archivedBatches = (archB || []).filter((b: any) => allOrderIds.includes(b.order_id));
+        } else if (isMissingRpc(archBErr)) {
+          const { data: archBFallback } = await supabase.from('order_batches_archive').select('id, order_id').in('order_id', allOrderIds);
+          archivedBatches = archBFallback || [];
         }
-        allBatches = [...(activeBatches || []), ...archivedBatches];
-
+        const allBatches: AiOrderBatch[] = [...(activeBatches || []), ...archivedBatches];
         const allBatchIds = allBatches.map(b => b.id);
+
         if (allBatchIds.length > 0) {
-          const { data: activeItems } = await supabase
-            .from('order_items')
-            .select('menu_item_id, name, quantity, batch_id')
-            .in('batch_id', allBatchIds);
+          const { data: activeItems } = await supabase.from('order_items').select('menu_item_id, name, quantity, batch_id').in('batch_id', allBatchIds);
 
           let archivedItems: AiOrderItem[] = [];
-          const { data: archI1, error: archI1Err } = await supabase.rpc('admin_get_order_items_archive', { p_restaurant_id: restaurantId });
-          if (!archI1Err) {
-            archivedItems = (archI1 || []).filter((i: any) => allBatchIds.includes(i.batch_id));
-          } else if (isMissingRpc(archI1Err)) {
-            const { data: archI2 } = await supabase.from('order_items_archive').select('menu_item_id, name, quantity, batch_id').in('batch_id', allBatchIds);
-            archivedItems = archI2 || [];
+          const { data: archI, error: archIErr } = await supabase.rpc('admin_get_order_items_archive', { p_restaurant_id: restaurantId });
+          if (!archIErr) {
+            archivedItems = (archI || []).filter((i: any) => allBatchIds.includes(i.batch_id));
+          } else if (isMissingRpc(archIErr)) {
+            const { data: archIFallback } = await supabase.from('order_items_archive').select('menu_item_id, name, quantity, batch_id').in('batch_id', allBatchIds);
+            archivedItems = archIFallback || [];
           }
           allItems = [...(activeItems || []), ...archivedItems];
         }
       }
       setOrderItems(allItems);
 
-      // 5. Reviews (active + archived)
+      // Reviews: active + archived
       const { data: activeReviews } = await supabase
         .from('reviews')
         .select('id, restaurant_rating, waiter_rating, comment, waiter_id, created_at')
         .eq('restaurant_id', restaurantId);
-
       const { data: archivedReviews } = await supabase
         .from('reviews_archive')
         .select('id, restaurant_rating, waiter_rating, comment, waiter_id, created_at')
         .eq('restaurant_id', restaurantId);
-
       setReviews([...(activeReviews || []), ...(archivedReviews || [])]);
 
-      // 6. Waiters
+      // Waiters
       const { data: waitersData } = await supabase
         .from('waiters')
         .select('id, nickname, full_name, profile_photo_url, average_rating, waiter_rating_count')
         .eq('restaurant_id', restaurantId);
       setWaiters(waitersData || []);
 
-      // 7. Menu items
+      // Menu items
       const { data: menuData } = await supabase
         .from('menu_items')
         .select('id, name, average_rating, rating_count, times_ordered')
@@ -228,7 +216,7 @@ const AiAnalysisPage: React.FC = () => {
       setMenuItems(menuData || []);
 
     } catch (err) {
-      console.error('Error en AiAnalysisPage:', err);
+      console.error('AiAnalysisPage error:', err);
     } finally {
       setLoading(false);
     }
@@ -236,24 +224,27 @@ const AiAnalysisPage: React.FC = () => {
 
   useEffect(() => { fetchAll(); }, [CURRENT_RESTAURANT?.id]);
 
-  // ─── Computed metrics ─────────────────────────────────────────────────────
+  // ─── Metrics ──────────────────────────────────────────────────────────────
 
   const metrics = useMemo(() => {
-    const paidOrderIds = new Set(payments.map(p => p.order_id));
-    const paidOrders = orders.filter(o => paidOrderIds.has(o.id));
+    // Closed/paid orders
+    const closedOrders = orders.filter(o => {
+      const s = String(o.status || '').toUpperCase();
+      return s === 'PAGADO' || s === 'CERRADO';
+    });
+    const orderCount = closedOrders.length || orders.length;
 
-    // Revenue
-    const totalRevenue = payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
-
-    // Orders count
-    const totalOrders = orders.length;
-    const paidOrderCount = paidOrders.length;
+    // Revenue: sum payments first; fallback to total_amount on orders
+    const paymentTotal = payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+    const orderFallbackTotal = closedOrders.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+    const revenue = paymentTotal > 0 ? paymentTotal : orderFallbackTotal;
 
     // Ticket promedio
-    const avgTicket = paidOrderCount > 0 ? totalRevenue / paidOrderCount : 0;
+    const avgTicket = orderCount > 0 ? revenue / orderCount : 0;
 
     // Comensales
     const totalGuests = orders.reduce((acc, o) => acc + (o.guest_count || 1), 0);
+    const avgGuestsPerOrder = orderCount > 0 ? totalGuests / orderCount : 0;
 
     // Score global
     const ratingsWithValue = reviews.filter(r => r.restaurant_rating != null);
@@ -261,7 +252,7 @@ const AiAnalysisPage: React.FC = () => {
       ? ratingsWithValue.reduce((acc, r) => acc + Number(r.restaurant_rating), 0) / ratingsWithValue.length
       : null;
 
-    // Mejor mes (por facturación)
+    // Mejor mes
     const revenueByMonth: Record<string, number> = {};
     payments.forEach(p => {
       const order = orders.find(o => o.id === p.order_id);
@@ -270,6 +261,14 @@ const AiAnalysisPage: React.FC = () => {
       const key = `${d.getFullYear()}-${d.getMonth()}`;
       revenueByMonth[key] = (revenueByMonth[key] || 0) + (Number(p.amount) || 0);
     });
+    // fallback: use total_amount if no payments
+    if (Object.keys(revenueByMonth).length === 0) {
+      closedOrders.forEach(o => {
+        const d = new Date(o.created_at);
+        const key = `${d.getFullYear()}-${d.getMonth()}`;
+        revenueByMonth[key] = (revenueByMonth[key] || 0) + (Number(o.total_amount) || 0);
+      });
+    }
     const bestMonthKey = Object.keys(revenueByMonth).sort((a, b) => revenueByMonth[b] - revenueByMonth[a])[0];
     let bestMonth: string | null = null;
     let bestMonthRevenue = 0;
@@ -287,7 +286,7 @@ const AiAnalysisPage: React.FC = () => {
     });
     const sortedMethods = Object.entries(paymentMethods).sort((a, b) => b[1] - a[1]);
 
-    // Mejor mesero (reviews con waiter_rating)
+    // Ranking de meseros (min 3 reviews)
     const waiterRatings: Record<string, number[]> = {};
     reviews.forEach(r => {
       if (r.waiter_id && r.waiter_rating != null) {
@@ -295,20 +294,17 @@ const AiAnalysisPage: React.FC = () => {
         waiterRatings[r.waiter_id].push(Number(r.waiter_rating));
       }
     });
-
     const waiterAvgs = Object.entries(waiterRatings)
       .map(([id, ratings]) => ({ id, avg: ratings.reduce((a, b) => a + b, 0) / ratings.length, count: ratings.length }))
       .filter(w => w.count >= 3)
       .sort((a, b) => b.avg - a.avg);
 
-    const bestWaiterId = waiterAvgs[0]?.id ?? null;
-    const worstWaiterId = waiterAvgs[waiterAvgs.length - 1]?.id ?? null;
-    const bestWaiter = waiters.find(w => w.id === bestWaiterId) ?? null;
-    const worstWaiter = waiterAvgs.length > 1 ? (waiters.find(w => w.id === worstWaiterId) ?? null) : null;
+    const bestWaiter = waiterAvgs[0] ? (waiters.find(w => w.id === waiterAvgs[0].id) ?? null) : null;
+    const worstWaiter = waiterAvgs.length > 1 ? (waiters.find(w => w.id === waiterAvgs[waiterAvgs.length - 1].id) ?? null) : null;
     const bestWaiterAvg = waiterAvgs[0]?.avg ?? null;
-    const worstWaiterAvg = waiterAvgs[waiterAvgs.length - 1]?.avg ?? null;
+    const worstWaiterAvg = waiterAvgs.length > 1 ? waiterAvgs[waiterAvgs.length - 1].avg : null;
 
-    // Producto más vendido (por conteo de order_items)
+    // Producto más vendido
     const itemCounts: Record<string, { name: string; qty: number }> = {};
     orderItems.forEach(item => {
       const key = item.menu_item_id || item.name;
@@ -317,57 +313,29 @@ const AiAnalysisPage: React.FC = () => {
     });
     const topItem = Object.values(itemCounts).sort((a, b) => b.qty - a.qty)[0] ?? null;
 
-    // Mejor plato por rating
-    const ratedItems = menuItems.filter(m => m.rating_count != null && m.rating_count >= 3 && m.average_rating != null);
-    const bestDish = ratedItems.sort((a, b) => (b.average_rating ?? 0) - (a.average_rating ?? 0))[0] ?? null;
-    const worstDish = ratedItems.sort((a, b) => (a.average_rating ?? 0) - (b.average_rating ?? 0))[0] ?? null;
+    // Mejor y peor plato por rating
+    const ratedItems = [...menuItems].filter(m => (m.rating_count ?? 0) >= 3 && m.average_rating != null);
+    ratedItems.sort((a, b) => (b.average_rating ?? 0) - (a.average_rating ?? 0));
+    const bestDish = ratedItems[0] ?? null;
+    const worstDish = ratedItems[ratedItems.length - 1] ?? null;
 
     return {
-      totalRevenue, totalOrders, paidOrderCount, avgTicket, totalGuests,
+      revenue, orderCount, avgTicket, totalGuests, avgGuestsPerOrder,
       globalScore, globalScoreCount: ratingsWithValue.length,
       bestMonth, bestMonthRevenue,
       sortedMethods,
       bestWaiter, worstWaiter, bestWaiterAvg, worstWaiterAvg,
-      topItem, bestDish, worstDish,
+      topItem, bestDish, worstDish: worstDish?.id !== bestDish?.id ? worstDish : null,
     };
   }, [orders, payments, orderItems, reviews, waiters, menuItems]);
 
-  // ─── Recommendations ──────────────────────────────────────────────────────
-
-  const recommendations = useMemo(() => {
-    const recs: { type: 'success' | 'warning' | 'info'; title: string; body: string }[] = [];
-
-    if (metrics.globalScore != null && metrics.globalScore < 3.5) {
-      recs.push({ type: 'warning', title: 'Experiencia general por debajo del promedio', body: `El score global es ${metrics.globalScore.toFixed(1)}/5. Revisá los comentarios negativos para identificar puntos de mejora urgentes.` });
-    }
-    if (metrics.worstWaiter && metrics.worstWaiterAvg != null && metrics.worstWaiterAvg < 3.5) {
-      recs.push({ type: 'warning', title: `Atención de ${metrics.worstWaiter.nickname || metrics.worstWaiter.full_name} necesita mejora`, body: `Rating promedio: ${metrics.worstWaiterAvg.toFixed(1)}/5. Considerá brindarle feedback o capacitación adicional.` });
-    }
-    if (metrics.avgTicket > 0 && metrics.avgTicket < 1000) {
-      recs.push({ type: 'info', title: 'Oportunidad para incrementar ticket promedio', body: `El ticket promedio actual es $${formatNum(metrics.avgTicket)}. Podés impulsar combos o sugerencias de maridaje para aumentarlo.` });
-    }
-    if (metrics.bestDish) {
-      recs.push({ type: 'success', title: `Destacá "${metrics.bestDish.name}" en el menú`, body: `Es tu plato mejor calificado (${metrics.bestDish.average_rating?.toFixed(1)}/5). Marcarlo como destacado puede atraer más pedidos.` });
-    }
-    if (metrics.worstDish && metrics.worstDish.id !== metrics.bestDish?.id && (metrics.worstDish.average_rating ?? 5) < 3.5) {
-      recs.push({ type: 'warning', title: `Revisá "${metrics.worstDish.name}"`, body: `Rating ${metrics.worstDish.average_rating?.toFixed(1)}/5 con ${metrics.worstDish.rating_count} valoraciones. Considerá ajustar la receta o retirarlo del menú.` });
-    }
-    if (metrics.topItem) {
-      recs.push({ type: 'success', title: `"${metrics.topItem.name}" es tu star producto`, body: `Se vendieron ${metrics.topItem.qty} unidades. Asegurate de tener siempre stock suficiente y de que esté visible en el menú.` });
-    }
-    if (recs.length === 0) {
-      recs.push({ type: 'success', title: 'Todo en orden', body: 'No se detectaron alertas críticas. Seguí monitoreando las métricas regularmente.' });
-    }
-    return recs;
-  }, [metrics]);
-
   // ─── Voz del cliente ──────────────────────────────────────────────────────
 
-  const voiceAnalysis = useMemo(() => {
+  const customerVoice = useMemo(() => {
     const withComment = reviews.filter(r => r.comment && r.comment.trim().length > 0);
     if (withComment.length === 0) return null;
 
-    const themeCounts: Record<keyof typeof THEMES, number> = { atencion: 0, comida: 0, rapidez: 0, ambiente: 0, precio: 0 };
+    const themeCounts: Record<string, number> = { atencion: 0, comida: 0, rapidez: 0, ambiente: 0, precio: 0 };
 
     const analyzed = withComment.map(r => {
       const text = (r.comment || '').toLowerCase();
@@ -376,71 +344,89 @@ const AiAnalysisPage: React.FC = () => {
       const sentiment: 'positive' | 'negative' | 'neutral' =
         posScore > negScore ? 'positive' : negScore > posScore ? 'negative' : 'neutral';
 
-      const detectedThemes: string[] = [];
-      (Object.keys(THEMES) as (keyof typeof THEMES)[]).forEach(theme => {
-        if (THEMES[theme].some(kw => text.includes(kw))) {
-          detectedThemes.push(theme);
-          themeCounts[theme]++;
-        }
+      Object.keys(THEMES).forEach(theme => {
+        if (THEMES[theme].some(kw => text.includes(kw))) themeCounts[theme]++;
       });
 
-      return { ...r, sentiment, detectedThemes, posScore, negScore };
+      return { ...r, sentiment };
     });
 
     const positive = analyzed.filter(r => r.sentiment === 'positive');
     const negative = analyzed.filter(r => r.sentiment === 'negative');
     const neutral = analyzed.filter(r => r.sentiment === 'neutral');
 
-    const sortedThemes = (Object.keys(themeCounts) as (keyof typeof THEMES)[])
+    const sortedThemes = Object.keys(themeCounts)
       .filter(k => themeCounts[k] > 0)
       .sort((a, b) => themeCounts[b] - themeCounts[a]);
 
-    const themeLabels: Record<string, string> = {
-      atencion: 'Atención', comida: 'Comida', rapidez: 'Rapidez', ambiente: 'Ambiente', precio: 'Precio'
-    };
+    const focus = sortedThemes[0] ?? null;
 
-    // Summary heuristic
-    let summary = '';
     const pct = Math.round((positive.length / analyzed.length) * 100);
-    if (pct >= 75) summary = `La mayoría de tus clientes (${pct}%) están muy satisfechos con la experiencia.`;
-    else if (pct >= 50) summary = `Más de la mitad de los clientes (${pct}%) tienen una experiencia positiva, pero hay margen de mejora.`;
-    else summary = `Solo el ${pct}% de los comentarios son positivos. Es momento de revisar los procesos con más atención.`;
+    let mood: 'good' | 'mixed' | 'bad';
+    let summary: string;
+    if (pct >= 75) { mood = 'good'; summary = `La mayoría de tus clientes (${pct}%) están muy satisfechos con la experiencia.`; }
+    else if (pct >= 50) { mood = 'mixed'; summary = `Más de la mitad de los clientes (${pct}%) tienen una experiencia positiva, aunque hay margen de mejora.`; }
+    else { mood = 'bad'; summary = `Solo el ${pct}% de los comentarios son positivos. Es momento de revisar los procesos con más atención.`; }
 
-    if (sortedThemes.length > 0) {
-      const topTheme = themeLabels[sortedThemes[0]];
-      summary += ` El tema más mencionado es "${topTheme}".`;
-    }
+    if (focus) summary += ` El tema más mencionado es "${THEME_LABELS[focus]}".`;
 
-    return { total: analyzed.length, positive, negative, neutral, themeCounts, sortedThemes, themeLabels, summary };
+    return {
+      writtenCount: analyzed.length,
+      positiveCount: positive.length,
+      improvementCount: negative.length,
+      mood,
+      focus,
+      sortedThemes,
+      themeCounts,
+      summary,
+      highlights: positive.slice(0, 5),
+      concerns: negative.slice(0, 5),
+    };
   }, [reviews]);
+
+  // ─── Recommendations ──────────────────────────────────────────────────────
+
+  const recommendations = useMemo(() => {
+    const recs: { type: 'success' | 'warning' | 'info'; title: string; body: string }[] = [];
+
+    if (metrics.globalScore != null && metrics.globalScore >= 4.5) {
+      recs.push({ type: 'success', title: 'La experiencia general está fuerte', body: `Score global de ${metrics.globalScore.toFixed(1)}/5. Aprovechá el buen momento para pedir reseñas en Google o redes sociales.` });
+    }
+    if (metrics.globalScore != null && metrics.globalScore < 3.5) {
+      recs.push({ type: 'warning', title: 'Experiencia general por debajo del promedio', body: `Score de ${metrics.globalScore.toFixed(1)}/5. Revisá los comentarios negativos para identificar puntos de mejora urgentes.` });
+    }
+    if (metrics.bestWaiter) {
+      recs.push({ type: 'success', title: `${metrics.bestWaiter.nickname || metrics.bestWaiter.full_name} tiene buenas prácticas para replicar`, body: `Rating promedio de ${metrics.bestWaiterAvg?.toFixed(1)}/5 en sala. Sus hábitos son un modelo para el resto del equipo.` });
+    }
+    if (metrics.worstWaiter && metrics.worstWaiterAvg != null && metrics.worstWaiterAvg < 3.5) {
+      recs.push({ type: 'warning', title: `Oportunidad de coaching en sala`, body: `${metrics.worstWaiter.nickname || metrics.worstWaiter.full_name} tiene un rating de ${metrics.worstWaiterAvg.toFixed(1)}/5. Darle feedback específico puede mejorar la nota general del restaurante.` });
+    }
+    if (metrics.avgGuestsPerOrder >= 2.5) {
+      recs.push({ type: 'info', title: 'La división de cuenta es parte central del uso', body: `Promedio de ${metrics.avgGuestsPerOrder.toFixed(1)} comensales por mesa. Asegurate de que el flujo de split sea rápido y sin fricciones.` });
+    }
+    if (metrics.bestDish) {
+      recs.push({ type: 'success', title: `Destacá "${metrics.bestDish.name}" en el menú`, body: `Es tu plato mejor calificado (${metrics.bestDish.average_rating?.toFixed(1)}/5 con ${metrics.bestDish.rating_count} votos). Marcarlo como destacado puede impulsar más pedidos.` });
+    }
+    if (metrics.worstDish && (metrics.worstDish.average_rating ?? 5) < 3.5) {
+      recs.push({ type: 'warning', title: `"${metrics.worstDish.name}" puede afectar la recompra`, body: `Rating de ${metrics.worstDish.average_rating?.toFixed(1)}/5 con ${metrics.worstDish.rating_count} valoraciones. Considerá ajustar la receta o retirarlo del menú.` });
+    }
+    if (customerVoice && customerVoice.improvementCount > 0) {
+      const focusLabel = customerVoice.focus ? `El tema principal detectado es "${THEME_LABELS[customerVoice.focus]}".` : '';
+      recs.push({ type: 'warning', title: `Hay ${customerVoice.improvementCount} comentario${customerVoice.improvementCount > 1 ? 's' : ''} con señal de mejora`, body: `Revisá la sección Voz del cliente para ver el detalle. ${focusLabel}` });
+    }
+    if (metrics.topItem) {
+      recs.push({ type: 'info', title: `"${metrics.topItem.name}" es tu star producto`, body: `${metrics.topItem.qty} unidades vendidas en total. Asegurate de que esté siempre disponible y visible en el menú.` });
+    }
+    if (recs.length === 0) {
+      recs.push({ type: 'success', title: 'Todo en orden', body: 'No se detectaron alertas críticas. Seguí monitoreando las métricas regularmente.' });
+    }
+    return recs;
+  }, [metrics, customerVoice]);
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  const formatNum = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  const formatCurrency = (n: number) => `$${formatNum(n)}`;
-
-  const StatCard = ({ icon: Icon, label, value, sub, color = 'indigo' }: { icon: any; label: string; value: string; sub?: string; color?: string }) => {
-    const colorMap: Record<string, string> = {
-      indigo: 'bg-indigo-50 text-indigo-600',
-      amber: 'bg-amber-50 text-amber-600',
-      green: 'bg-green-50 text-green-600',
-      blue: 'bg-blue-50 text-blue-600',
-      purple: 'bg-purple-50 text-purple-600',
-      rose: 'bg-rose-50 text-rose-600',
-    };
-    return (
-      <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-start gap-4">
-        <div className={`p-2.5 rounded-xl shrink-0 ${colorMap[color] || colorMap.indigo}`}>
-          <Icon size={20} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1">{label}</p>
-          <p className="text-xl font-bold text-gray-900 leading-tight">{value}</p>
-          {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-        </div>
-      </div>
-    );
-  };
+  const fmtNum = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 0 });
+  const fmtCurrency = (n: number) => `$${fmtNum(n)}`;
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -451,11 +437,8 @@ const AiAnalysisPage: React.FC = () => {
       </div>
     );
   }
-
   if (!CURRENT_RESTAURANT?.id) {
-    return (
-      <div className="p-6 text-gray-400 text-center">Sin restaurante configurado.</div>
-    );
+    return <div className="p-6 text-gray-400 text-center">Sin restaurante configurado.</div>;
   }
 
   const noData = orders.length === 0;
@@ -471,7 +454,7 @@ const AiAnalysisPage: React.FC = () => {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Análisis AI</h1>
-            <p className="text-sm text-gray-500 mt-0.5">Métricas históricas + inteligencia sobre tu negocio</p>
+            <p className="text-sm text-gray-500 mt-0.5">Lectura ejecutiva de performance comercial, equipo y calidad</p>
           </div>
         </div>
         <button
@@ -479,7 +462,7 @@ const AiAnalysisPage: React.FC = () => {
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 rounded-xl px-3 py-2 transition-colors"
         >
           <RefreshCw size={15} />
-          Actualizar
+          Recalcular
         </button>
       </div>
 
@@ -491,107 +474,232 @@ const AiAnalysisPage: React.FC = () => {
         </div>
       ) : (
         <>
-          {/* ── Métricas principales ── */}
+          {/* ── Resumen ejecutivo ── */}
+          <div className="bg-gray-900 rounded-3xl p-6 text-white">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles size={16} className="text-indigo-400" />
+              <span className="text-xs font-bold uppercase tracking-widest text-indigo-400">Resumen ejecutivo</span>
+            </div>
+            <p className="text-base leading-relaxed text-gray-100">
+              El negocio acumula{' '}
+              <span className="text-white font-semibold">{fmtNum(metrics.orderCount)} pedidos</span>,{' '}
+              <span className="text-white font-semibold">{fmtCurrency(metrics.revenue)}</span> en facturación registrada
+              {metrics.globalScore != null && (
+                <> y un score de calidad de <span className="text-white font-semibold">{metrics.globalScore.toFixed(1)}/5</span></>
+              )}.
+              {metrics.bestMonth && (
+                <> El mejor mes fue <span className="text-white font-semibold">{metrics.bestMonth}</span> con {fmtCurrency(metrics.bestMonthRevenue)}.</>
+              )}
+              {customerVoice && (
+                <> {customerVoice.summary}</>
+              )}
+            </p>
+          </div>
+
+          {/* ── KPIs ── */}
           <section>
-            <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Métricas históricas</h2>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-              <StatCard icon={DollarSign} label="Facturación total" value={formatCurrency(metrics.totalRevenue)} sub={`${metrics.paidOrderCount} órdenes pagadas`} color="green" />
-              <StatCard icon={ShoppingBag} label="Total pedidos" value={formatNum(metrics.totalOrders)} color="indigo" />
-              <StatCard icon={TrendingUp} label="Ticket promedio" value={formatCurrency(metrics.avgTicket)} sub="por orden pagada" color="blue" />
-              <StatCard icon={Users} label="Comensales totales" value={formatNum(metrics.totalGuests)} color="purple" />
+            <SectionTitle>Métricas históricas</SectionTitle>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard icon={DollarSign} label="Facturación histórica" value={fmtCurrency(metrics.revenue)} color="green" />
+              <StatCard icon={ShoppingBag} label="Pedidos analizados" value={fmtNum(metrics.orderCount)} color="indigo" />
+              <StatCard icon={TrendingUp} label="Ticket promedio" value={fmtCurrency(metrics.avgTicket)} color="blue" />
+              <StatCard icon={Users} label="Comensales totales" value={fmtNum(metrics.totalGuests)} color="purple" />
+            </div>
+          </section>
+
+          {/* ── Voz del cliente ── */}
+          <section>
+            <SectionTitle>Voz del cliente</SectionTitle>
+            {!customerVoice ? (
+              <div className="text-center py-10 text-gray-400 bg-white rounded-2xl border border-gray-100">
+                <MessageSquare size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">Aún no hay comentarios escritos.</p>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {/* Topes */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
+                    <p className="text-2xl font-bold text-gray-900">{customerVoice.writtenCount}</p>
+                    <p className="text-xs text-gray-400 mt-1">Comentarios escritos</p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-green-100 shadow-sm p-4 text-center">
+                    <p className="text-2xl font-bold text-green-600">{customerVoice.positiveCount}</p>
+                    <p className="text-xs text-gray-400 mt-1">Elogios</p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-rose-100 shadow-sm p-4 text-center">
+                    <p className="text-2xl font-bold text-rose-500">{customerVoice.improvementCount}</p>
+                    <p className="text-xs text-gray-400 mt-1">A revisar</p>
+                  </div>
+                </div>
+
+                {/* Temas */}
+                {customerVoice.sortedThemes.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Temas más mencionados</p>
+                    <div className="space-y-3">
+                      {customerVoice.sortedThemes.map(theme => {
+                        const count = customerVoice.themeCounts[theme];
+                        const pct = (count / customerVoice.writtenCount) * 100;
+                        return (
+                          <div key={theme}>
+                            <div className="flex items-center justify-between text-sm mb-1">
+                              <span className="font-medium text-gray-700">{THEME_LABELS[theme]}</span>
+                              <span className="text-gray-400">{count} menciones</span>
+                            </div>
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-indigo-400 rounded-full" style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Lo más destacable */}
+                {customerVoice.highlights.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-green-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                      <ThumbsUp size={13} /> Lo más destacable
+                    </p>
+                    <div className="space-y-3">
+                      {customerVoice.highlights.map(r => (
+                        <div key={r.id} className="bg-white rounded-2xl border border-green-100 p-4">
+                          <p className="text-sm text-gray-700 leading-relaxed">"{r.comment}"</p>
+                          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                            {r.restaurant_rating != null && <span>⭐ {r.restaurant_rating}/5</span>}
+                            <span>{new Date(r.created_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Quejas o mejoras */}
+                {customerVoice.concerns.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-rose-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                      <AlertTriangle size={13} /> Quejas o mejoras
+                    </p>
+                    <div className="space-y-3">
+                      {customerVoice.concerns.map(r => (
+                        <div key={r.id} className="bg-white rounded-2xl border border-rose-100 p-4">
+                          <p className="text-sm text-gray-700 leading-relaxed">"{r.comment}"</p>
+                          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                            {r.restaurant_rating != null && <span>⭐ {r.restaurant_rating}/5</span>}
+                            <span>{new Date(r.created_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* ── Acciones sugeridas ── */}
+          <section>
+            <SectionTitle>Acciones sugeridas</SectionTitle>
+            <div className="space-y-3">
+              {recommendations.map((rec, i) => {
+                const styles = {
+                  success: { bg: 'bg-green-50 border-green-100', icon: 'text-green-500', title: 'text-green-800' },
+                  warning: { bg: 'bg-amber-50 border-amber-100', icon: 'text-amber-500', title: 'text-amber-800' },
+                  info:    { bg: 'bg-blue-50 border-blue-100',   icon: 'text-blue-500',  title: 'text-blue-800' },
+                };
+                const s = styles[rec.type];
+                const Icon = rec.type === 'success' ? TrendingUp : rec.type === 'warning' ? AlertTriangle : BrainCircuit;
+                return (
+                  <div key={i} className={`rounded-2xl border p-4 flex gap-3 ${s.bg}`}>
+                    <Icon size={18} className={`shrink-0 mt-0.5 ${s.icon}`} />
+                    <div>
+                      <p className={`font-semibold text-sm ${s.title}`}>{rec.title}</p>
+                      <p className="text-sm text-gray-600 mt-0.5">{rec.body}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* ── Comensales y pagos ── */}
+          <section>
+            <SectionTitle>Comensales y pagos</SectionTitle>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <StatCard icon={Users} label="Promedio de comensales por orden" value={metrics.avgGuestsPerOrder.toFixed(1)} color="purple" />
               {metrics.globalScore != null && (
                 <StatCard
                   icon={Star}
-                  label="Score global"
+                  label="Score global del restaurante"
                   value={`${metrics.globalScore.toFixed(1)} / 5`}
                   sub={`${metrics.globalScoreCount} valoraciones`}
                   color={metrics.globalScore >= 4 ? 'green' : metrics.globalScore >= 3 ? 'amber' : 'rose'}
                 />
               )}
               {metrics.bestMonth && (
-                <StatCard icon={Calendar} label="Mejor mes" value={metrics.bestMonth} sub={formatCurrency(metrics.bestMonthRevenue)} color="amber" />
+                <StatCard icon={Calendar} label="Mejor mes" value={metrics.bestMonth} sub={fmtCurrency(metrics.bestMonthRevenue)} color="amber" />
               )}
             </div>
+
+            {metrics.sortedMethods.length > 0 && (
+              <div className="mt-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Métodos de pago</p>
+                <div className="space-y-3">
+                  {metrics.sortedMethods.map(([method, amount]) => {
+                    const pct = metrics.revenue > 0 ? (amount / metrics.revenue) * 100 : 0;
+                    return (
+                      <div key={method}>
+                        <div className="flex items-center justify-between mb-1 text-sm">
+                          <span className="font-medium text-gray-700 capitalize">{method}</span>
+                          <span className="text-gray-500">{fmtCurrency(amount)} <span className="text-gray-400 text-xs">({pct.toFixed(0)}%)</span></span>
+                        </div>
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </section>
 
-          {/* ── Métodos de pago ── */}
-          {metrics.sortedMethods.length > 0 && (
-            <section>
-              <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Métodos de pago</h2>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
-                {metrics.sortedMethods.map(([method, amount]) => {
-                  const pct = metrics.totalRevenue > 0 ? (amount / metrics.totalRevenue) * 100 : 0;
-                  return (
-                    <div key={method}>
-                      <div className="flex items-center justify-between mb-1 text-sm">
-                        <span className="font-medium text-gray-700 capitalize">{method}</span>
-                        <span className="text-gray-500">{formatCurrency(amount)} <span className="text-gray-400 text-xs">({pct.toFixed(0)}%)</span></span>
-                      </div>
-                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* ── Meseros ── */}
+          {/* ── Personal ── */}
           {(metrics.bestWaiter || metrics.worstWaiter) && (
             <section>
-              <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Equipo de sala</h2>
+              <SectionTitle>Personal</SectionTitle>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {metrics.bestWaiter && (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-                    <div className="relative shrink-0">
-                      {metrics.bestWaiter.profile_photo_url ? (
-                        <img src={metrics.bestWaiter.profile_photo_url} alt="" className="w-12 h-12 rounded-full object-cover" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-lg">
-                          {(metrics.bestWaiter.nickname || metrics.bestWaiter.full_name || '?')[0].toUpperCase()}
-                        </div>
-                      )}
-                      <div className="absolute -bottom-1 -right-1 bg-green-500 rounded-full p-0.5">
-                        <Award size={10} className="text-white" />
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Mejor mesero</p>
-                      <p className="font-bold text-gray-900">{metrics.bestWaiter.nickname || metrics.bestWaiter.full_name}</p>
-                      <p className="text-sm text-green-600 font-semibold">{metrics.bestWaiterAvg?.toFixed(1)} ★</p>
-                    </div>
-                  </div>
+                  <WaiterCard
+                    waiter={metrics.bestWaiter}
+                    avg={metrics.bestWaiterAvg}
+                    label="Mejor mesero"
+                    badgeIcon={<Award size={10} className="text-white" />}
+                    badgeColor="bg-green-500"
+                    ratingColor="text-green-600"
+                  />
                 )}
                 {metrics.worstWaiter && metrics.worstWaiter.id !== metrics.bestWaiter?.id && (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-                    <div className="relative shrink-0">
-                      {metrics.worstWaiter.profile_photo_url ? (
-                        <img src={metrics.worstWaiter.profile_photo_url} alt="" className="w-12 h-12 rounded-full object-cover" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-bold text-lg">
-                          {(metrics.worstWaiter.nickname || metrics.worstWaiter.full_name || '?')[0].toUpperCase()}
-                        </div>
-                      )}
-                      <div className="absolute -bottom-1 -right-1 bg-amber-500 rounded-full p-0.5">
-                        <Zap size={10} className="text-white" />
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">A seguir de cerca</p>
-                      <p className="font-bold text-gray-900">{metrics.worstWaiter.nickname || metrics.worstWaiter.full_name}</p>
-                      <p className="text-sm text-amber-600 font-semibold">{metrics.worstWaiterAvg?.toFixed(1)} ★</p>
-                    </div>
-                  </div>
+                  <WaiterCard
+                    waiter={metrics.worstWaiter}
+                    avg={metrics.worstWaiterAvg}
+                    label="A seguir de cerca"
+                    badgeIcon={<Zap size={10} className="text-white" />}
+                    badgeColor="bg-amber-500"
+                    ratingColor="text-amber-600"
+                  />
                 )}
               </div>
             </section>
           )}
 
-          {/* ── Platos destacados ── */}
+          {/* ── Productos ── */}
           {(metrics.topItem || metrics.bestDish || metrics.worstDish) && (
             <section>
-              <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Platos</h2>
+              <SectionTitle>Productos</SectionTitle>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {metrics.topItem && (
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -613,7 +721,7 @@ const AiAnalysisPage: React.FC = () => {
                     <p className="text-green-600 font-semibold mt-1">{metrics.bestDish.average_rating?.toFixed(1)} ★ ({metrics.bestDish.rating_count} votos)</p>
                   </div>
                 )}
-                {metrics.worstDish && metrics.worstDish.id !== metrics.bestDish?.id && (
+                {metrics.worstDish && (
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                     <div className="flex items-center gap-2 mb-2">
                       <ThumbsDown size={16} className="text-rose-500" />
@@ -627,123 +735,92 @@ const AiAnalysisPage: React.FC = () => {
             </section>
           )}
 
-          {/* ── Recomendaciones ── */}
-          <section>
-            <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Recomendaciones</h2>
-            <div className="space-y-3">
-              {recommendations.map((rec, i) => {
-                const styles = {
-                  success: { bg: 'bg-green-50 border-green-100', icon: 'text-green-500', title: 'text-green-800' },
-                  warning: { bg: 'bg-amber-50 border-amber-100', icon: 'text-amber-500', title: 'text-amber-800' },
-                  info: { bg: 'bg-blue-50 border-blue-100', icon: 'text-blue-500', title: 'text-blue-800' },
-                };
-                const s = styles[rec.type];
-                const Icon = rec.type === 'success' ? TrendingUp : rec.type === 'warning' ? AlertTriangle : BrainCircuit;
-                return (
-                  <div key={i} className={`rounded-2xl border p-4 flex gap-3 ${s.bg}`}>
-                    <Icon size={18} className={`shrink-0 mt-0.5 ${s.icon}`} />
-                    <div>
-                      <p className={`font-semibold text-sm ${s.title}`}>{rec.title}</p>
-                      <p className="text-sm text-gray-600 mt-0.5">{rec.body}</p>
-                    </div>
+          {/* ── Calidad ── */}
+          {metrics.globalScore != null && (
+            <section>
+              <SectionTitle>Calidad</SectionTitle>
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                <div className="flex items-center gap-5">
+                  <div className="text-center shrink-0">
+                    <p className={`text-5xl font-black ${metrics.globalScore >= 4 ? 'text-green-600' : metrics.globalScore >= 3 ? 'text-amber-500' : 'text-rose-500'}`}>
+                      {metrics.globalScore.toFixed(1)}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">de 5</p>
                   </div>
-                );
-              })}
-            </div>
-          </section>
-
-          {/* ── Voz del cliente ── */}
-          <section>
-            <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Voz del cliente</h2>
-
-            {!voiceAnalysis ? (
-              <div className="text-center py-10 text-gray-400 bg-white rounded-2xl border border-gray-100">
-                <MessageSquare size={32} className="mx-auto mb-2 opacity-30" />
-                <p className="text-sm">Aún no hay comentarios escritos.</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {/* Resumen */}
-                <div className="bg-indigo-600 text-white rounded-2xl p-5">
-                  <p className="text-xs font-bold uppercase tracking-widest opacity-70 mb-2">Resumen general</p>
-                  <p className="text-base leading-relaxed">{voiceAnalysis.summary}</p>
-                  <div className="flex gap-5 mt-4 text-sm">
-                    <span className="flex items-center gap-1.5"><ThumbsUp size={14} className="opacity-70" /> {voiceAnalysis.positive.length} positivos</span>
-                    <span className="flex items-center gap-1.5"><ThumbsDown size={14} className="opacity-70" /> {voiceAnalysis.negative.length} negativos</span>
-                    <span className="text-white/60">{voiceAnalysis.neutral.length} neutros</span>
+                  <div className="flex-1">
+                    <div className="flex gap-1 mb-2">
+                      {[1, 2, 3, 4, 5].map(star => (
+                        <div
+                          key={star}
+                          className={`flex-1 h-2 rounded-full ${star <= Math.round(metrics.globalScore!) ? (metrics.globalScore! >= 4 ? 'bg-green-500' : metrics.globalScore! >= 3 ? 'bg-amber-400' : 'bg-rose-400') : 'bg-gray-100'}`}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-sm text-gray-500">
+                      Basado en <span className="font-semibold text-gray-700">{metrics.globalScoreCount}</span> valoraciones de clientes.{' '}
+                      {metrics.globalScore >= 4.5 && 'Excelente.'}
+                      {metrics.globalScore >= 4 && metrics.globalScore < 4.5 && 'Muy bueno.'}
+                      {metrics.globalScore >= 3 && metrics.globalScore < 4 && 'Aceptable, hay margen de mejora.'}
+                      {metrics.globalScore < 3 && 'Necesita atención urgente.'}
+                    </p>
                   </div>
                 </div>
-
-                {/* Temas */}
-                {voiceAnalysis.sortedThemes.length > 0 && (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Temas más mencionados</p>
-                    <div className="space-y-3">
-                      {voiceAnalysis.sortedThemes.map(theme => {
-                        const count = voiceAnalysis.themeCounts[theme as keyof typeof THEMES];
-                        const pct = (count / voiceAnalysis.total) * 100;
-                        return (
-                          <div key={theme}>
-                            <div className="flex items-center justify-between text-sm mb-1">
-                              <span className="font-medium text-gray-700">{voiceAnalysis.themeLabels[theme]}</span>
-                              <span className="text-gray-400">{count} menciones</span>
-                            </div>
-                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-indigo-400 rounded-full" style={{ width: `${pct}%` }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Comentarios destacados */}
-                {voiceAnalysis.positive.length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold text-green-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-                      <ThumbsUp size={13} /> Comentarios destacados
-                    </p>
-                    <div className="space-y-3">
-                      {voiceAnalysis.positive.slice(0, 5).map(r => (
-                        <div key={r.id} className="bg-white rounded-2xl border border-green-100 p-4">
-                          <p className="text-sm text-gray-700 leading-relaxed">"{r.comment}"</p>
-                          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-                            {r.restaurant_rating != null && <span>⭐ {r.restaurant_rating}/5</span>}
-                            <span>{new Date(r.created_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Comentarios a revisar */}
-                {voiceAnalysis.negative.length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold text-rose-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-                      <AlertTriangle size={13} /> Comentarios a revisar
-                    </p>
-                    <div className="space-y-3">
-                      {voiceAnalysis.negative.slice(0, 5).map(r => (
-                        <div key={r.id} className="bg-white rounded-2xl border border-rose-100 p-4">
-                          <p className="text-sm text-gray-700 leading-relaxed">"{r.comment}"</p>
-                          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-                            {r.restaurant_rating != null && <span>⭐ {r.restaurant_rating}/5</span>}
-                            <span>{new Date(r.created_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
-            )}
-          </section>
+            </section>
+          )}
         </>
       )}
     </div>
   );
 };
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">{children}</h2>
+);
+
+const StatCard: React.FC<{ icon: any; label: string; value: string; sub?: string; color?: string }> = ({ icon: Icon, label, value, sub, color = 'indigo' }) => {
+  const colorMap: Record<string, string> = {
+    indigo: 'bg-indigo-50 text-indigo-600',
+    amber:  'bg-amber-50 text-amber-600',
+    green:  'bg-green-50 text-green-600',
+    blue:   'bg-blue-50 text-blue-600',
+    purple: 'bg-purple-50 text-purple-600',
+    rose:   'bg-rose-50 text-rose-600',
+  };
+  return (
+    <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-start gap-4">
+      <div className={`p-2.5 rounded-xl shrink-0 ${colorMap[color] || colorMap.indigo}`}>
+        <Icon size={20} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1">{label}</p>
+        <p className="text-xl font-bold text-gray-900 leading-tight">{value}</p>
+        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  );
+};
+
+const WaiterCard: React.FC<{ waiter: AiWaiter; avg: number | null; label: string; badgeIcon: React.ReactNode; badgeColor: string; ratingColor: string }> = ({ waiter, avg, label, badgeIcon, badgeColor, ratingColor }) => (
+  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+    <div className="relative shrink-0">
+      {waiter.profile_photo_url ? (
+        <img src={waiter.profile_photo_url} alt="" className="w-12 h-12 rounded-full object-cover" />
+      ) : (
+        <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-lg">
+          {(waiter.nickname || waiter.full_name || '?')[0].toUpperCase()}
+        </div>
+      )}
+      <div className={`absolute -bottom-1 -right-1 rounded-full p-0.5 ${badgeColor}`}>{badgeIcon}</div>
+    </div>
+    <div>
+      <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">{label}</p>
+      <p className="font-bold text-gray-900">{waiter.nickname || waiter.full_name}</p>
+      {avg != null && <p className={`text-sm font-semibold ${ratingColor}`}>{avg.toFixed(1)} ★</p>}
+    </div>
+  </div>
+);
 
 export default AiAnalysisPage;
