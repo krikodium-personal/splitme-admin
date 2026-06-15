@@ -24,17 +24,6 @@ interface AiPayment {
   payment_method: string | null;
 }
 
-interface AiOrderItem {
-  menu_item_id: string | null;
-  name: string;
-  quantity: number;
-  batch_id: string;
-}
-
-interface AiOrderBatch {
-  id: string;
-  order_id: string;
-}
 
 interface AiReview {
   id: string;
@@ -100,11 +89,6 @@ const MONTHS_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio
 const isMissingRpc = (e: any) =>
   e?.code === 'PGRST202' || e?.message?.includes('Could not find the function');
 
-const chunkArray = <T,>(arr: T[], size: number): T[][] => {
-  const chunks: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
-  return chunks;
-};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -112,7 +96,6 @@ const AiAnalysisPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<AiOrder[]>([]);
   const [payments, setPayments] = useState<AiPayment[]>([]);
-  const [orderItems, setOrderItems] = useState<AiOrderItem[]>([]);
   const [reviews, setReviews] = useState<AiReview[]>([]);
   const [waiters, setWaiters] = useState<AiWaiter[]>([]);
   const [menuItems, setMenuItems] = useState<AiMenuItem[]>([]);
@@ -163,50 +146,6 @@ const AiAnalysisPage: React.FC = () => {
         allPayments = [...(activePay || []), ...archivedPay];
       }
       setPayments(allPayments);
-
-      // Order items (via batches)
-      let allItems: AiOrderItem[] = [];
-      if (allOrderIds.length > 0) {
-        const { data: activeBatches } = await supabase.from('order_batches').select('id, order_id').in('order_id', allOrderIds);
-
-        let archivedBatches: AiOrderBatch[] = [];
-        const { data: archB, error: archBErr } = await supabase.rpc('admin_get_order_batches_archive', { p_restaurant_id: restaurantId });
-        if (!archBErr) {
-          archivedBatches = (archB || []).filter((b: any) => allOrderIds.includes(b.order_id));
-        } else if (isMissingRpc(archBErr)) {
-          const { data: archBFallback } = await supabase.from('order_batches_archive').select('id, order_id').in('order_id', allOrderIds);
-          archivedBatches = archBFallback || [];
-        }
-        const allBatches: AiOrderBatch[] = [...(activeBatches || []), ...archivedBatches];
-        const allBatchIds = allBatches.map(b => b.id);
-
-        if (allBatchIds.length > 0) {
-          // Chunk to avoid URL length 400 errors (PostgREST GET limit)
-          const batchChunks = chunkArray(allBatchIds, 15);
-          const activeItemsChunks = await Promise.all(
-            batchChunks.map(chunk =>
-              supabase.from('order_items').select('menu_item_id, name, quantity, batch_id').in('batch_id', chunk).then(r => r.data || [])
-            )
-          );
-          const activeItems = activeItemsChunks.flat();
-
-          let archivedItems: AiOrderItem[] = [];
-          const { data: archI, error: archIErr } = await supabase.rpc('admin_get_order_items_archive', { p_restaurant_id: restaurantId });
-          if (!archIErr) {
-            const batchIdSet = new Set(allBatchIds);
-            archivedItems = (archI || []).filter((i: any) => batchIdSet.has(i.batch_id));
-          } else if (isMissingRpc(archIErr)) {
-            const archIChunks = await Promise.all(
-              batchChunks.map(chunk =>
-                supabase.from('order_items_archive').select('menu_item_id, name, quantity, batch_id').in('batch_id', chunk).then(r => r.data || [])
-              )
-            );
-            archivedItems = archIChunks.flat();
-          }
-          allItems = [...activeItems, ...archivedItems];
-        }
-      }
-      setOrderItems(allItems);
 
       // Reviews: active + archived
       const { data: activeReviews } = await supabase
@@ -322,19 +261,13 @@ const AiAnalysisPage: React.FC = () => {
     const bestWaiterAvg = waiterAvgs[0]?.avg ?? null;
     const worstWaiterAvg = waiterAvgs.length > 1 ? waiterAvgs[waiterAvgs.length - 1].avg : null;
 
-    // Producto más vendido
-    const menuItemMap: Record<string, string> = {};
-    menuItems.forEach(m => { menuItemMap[m.id] = m.name; });
-
-    const itemCounts: Record<string, { name: string; qty: number }> = {};
-    orderItems.forEach(item => {
-      const resolvedName = (item.menu_item_id && menuItemMap[item.menu_item_id]) || item.name;
-      if (!resolvedName) return; // skip items without any identifiable name
-      const key = item.menu_item_id || resolvedName;
-      if (!itemCounts[key]) itemCounts[key] = { name: resolvedName, qty: 0 };
-      itemCounts[key].qty += item.quantity || 1;
-    });
-    const topItem = Object.values(itemCounts).sort((a, b) => b.qty - a.qty)[0] ?? null;
+    // Producto más vendido — directo desde menu_items.times_ordered
+    const sortedByOrdered = [...menuItems]
+      .filter(m => (m.times_ordered ?? 0) > 0)
+      .sort((a, b) => (b.times_ordered ?? 0) - (a.times_ordered ?? 0));
+    const topItem = sortedByOrdered[0]
+      ? { name: sortedByOrdered[0].name, qty: sortedByOrdered[0].times_ordered ?? 0 }
+      : null;
 
     // Mejor y peor plato por rating
     const ratedItems = [...menuItems].filter(m => (m.rating_count ?? 0) >= 3 && m.average_rating != null);
@@ -350,7 +283,7 @@ const AiAnalysisPage: React.FC = () => {
       bestWaiter, worstWaiter, bestWaiterAvg, worstWaiterAvg,
       topItem, bestDish, worstDish: worstDish?.id !== bestDish?.id ? worstDish : null,
     };
-  }, [orders, payments, orderItems, reviews, waiters, menuItems]);
+  }, [orders, payments, reviews, waiters, menuItems]);
 
   // ─── Voz del cliente ──────────────────────────────────────────────────────
 
