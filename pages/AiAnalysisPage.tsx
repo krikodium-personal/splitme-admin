@@ -261,12 +261,17 @@ const AiAnalysisPage: React.FC = () => {
     const bestWaiterAvg = waiterAvgs[0]?.avg ?? null;
     const worstWaiterAvg = waiterAvgs.length > 1 ? waiterAvgs[waiterAvgs.length - 1].avg : null;
 
-    // Producto más vendido — directo desde menu_items.times_ordered
-    const sortedByOrdered = [...menuItems]
-      .filter(m => (m.times_ordered ?? 0) > 0)
-      .sort((a, b) => (b.times_ordered ?? 0) - (a.times_ordered ?? 0));
-    const topItem = sortedByOrdered[0]
-      ? { name: sortedByOrdered[0].name, qty: sortedByOrdered[0].times_ordered ?? 0 }
+    // Producto estrella — mejor calificación cruzada con mayor cantidad de ventas
+    const eligibleItems = menuItems.filter(m => (m.times_ordered ?? 0) > 0 && (m.average_rating ?? 0) > 0);
+    const maxOrdered = Math.max(...eligibleItems.map(m => m.times_ordered ?? 0), 1);
+    const starItem = eligibleItems
+      .map(m => ({
+        ...m,
+        starScore: ((m.average_rating ?? 0) / 5) * 0.5 + ((m.times_ordered ?? 0) / maxOrdered) * 0.5,
+      }))
+      .sort((a, b) => b.starScore - a.starScore)[0] ?? null;
+    const topItem = starItem
+      ? { name: starItem.name, qty: starItem.times_ordered ?? 0, rating: starItem.average_rating ?? 0 }
       : null;
 
     // Mejor y peor plato por rating
@@ -371,7 +376,7 @@ const AiAnalysisPage: React.FC = () => {
       recs.push({ type: 'warning', title: `Hay ${customerVoice.improvementCount} comentario${customerVoice.improvementCount > 1 ? 's' : ''} con señal de mejora`, body: `Revisá la sección Voz del cliente para ver el detalle. ${focusLabel}` });
     }
     if (metrics.topItem) {
-      recs.push({ type: 'info', title: `"${metrics.topItem.name}" es tu star producto`, body: `${metrics.topItem.qty} unidades vendidas en total. Asegurate de que esté siempre disponible y visible en el menú.` });
+      recs.push({ type: 'info', title: `"${metrics.topItem.name}" es tu producto estrella`, body: `${metrics.topItem.qty} unidades vendidas con un rating de ${metrics.topItem.rating.toFixed(1)}/5. Asegurate de que esté siempre disponible y visible en el menú.` });
     }
     if (recs.length === 0) {
       recs.push({ type: 'success', title: 'Todo en orden', body: 'No se detectaron alertas críticas. Seguí monitoreando las métricas regularmente.' });
@@ -661,10 +666,10 @@ const AiAnalysisPage: React.FC = () => {
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                     <div className="flex items-center gap-2 mb-2">
                       <ChefHat size={16} className="text-indigo-500" />
-                      <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Más vendido</p>
+                      <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Producto estrella</p>
                     </div>
                     <p className="font-bold text-gray-900 text-sm leading-tight">{metrics.topItem.name}</p>
-                    <p className="text-indigo-600 font-semibold mt-1">{metrics.topItem.qty} unidades</p>
+                    <p className="text-indigo-600 font-semibold mt-1">{metrics.topItem.qty} ventas · {metrics.topItem.rating.toFixed(1)} ★</p>
                   </div>
                 )}
                 {metrics.bestDish && (
