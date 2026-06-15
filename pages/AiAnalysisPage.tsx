@@ -323,11 +323,15 @@ const AiAnalysisPage: React.FC = () => {
     const worstWaiterAvg = waiterAvgs.length > 1 ? waiterAvgs[waiterAvgs.length - 1].avg : null;
 
     // Producto más vendido
+    const menuItemMap: Record<string, string> = {};
+    menuItems.forEach(m => { menuItemMap[m.id] = m.name; });
+
     const itemCounts: Record<string, { name: string; qty: number }> = {};
     orderItems.forEach(item => {
-      const itemName = item.name || 'Producto sin nombre';
-      const key = item.menu_item_id || itemName;
-      if (!itemCounts[key]) itemCounts[key] = { name: itemName, qty: 0 };
+      const resolvedName = (item.menu_item_id && menuItemMap[item.menu_item_id]) || item.name;
+      if (!resolvedName) return; // skip items without any identifiable name
+      const key = item.menu_item_id || resolvedName;
+      if (!itemCounts[key]) itemCounts[key] = { name: resolvedName, qty: 0 };
       itemCounts[key].qty += item.quantity || 1;
     });
     const topItem = Object.values(itemCounts).sort((a, b) => b.qty - a.qty)[0] ?? null;
