@@ -300,8 +300,14 @@ const AiAnalysisPage: React.FC = () => {
       const text = (r.comment || '').toLowerCase();
       const posScore = POSITIVE_WORDS.filter(w => text.includes(w)).length;
       const negScore = NEGATIVE_WORDS.filter(w => text.includes(w)).length;
+      const rating = r.restaurant_rating != null ? Number(r.restaurant_rating) : null;
+      // Rating beats NLP when it's unambiguous (≤2 = negative, ≥4 with no keyword match = positive)
       const sentiment: 'positive' | 'negative' | 'neutral' =
-        posScore > negScore ? 'positive' : negScore > posScore ? 'negative' : 'neutral';
+        rating != null && rating <= 2 ? 'negative'
+        : rating != null && rating >= 4 && posScore === 0 && negScore === 0 ? 'positive'
+        : posScore > negScore ? 'positive'
+        : negScore > posScore ? 'negative'
+        : 'neutral';
 
       Object.keys(THEMES).forEach(theme => {
         if (THEMES[theme].some(kw => text.includes(kw))) themeCounts[theme]++;
@@ -516,42 +522,55 @@ const AiAnalysisPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Lo más destacable */}
-                {customerVoice.highlights.length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold text-green-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-                      <ThumbsUp size={13} /> Lo más destacable
-                    </p>
-                    <div className="space-y-3">
-                      {customerVoice.highlights.map(r => (
-                        <div key={r.id} className="bg-white rounded-2xl border border-green-100 p-4">
-                          <p className="text-sm text-gray-700 leading-relaxed">"{r.comment}"</p>
-                          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-                            {r.restaurant_rating != null && <span>⭐ {r.restaurant_rating}/5</span>}
-                            <span>{new Date(r.created_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                          </div>
+                {/* Comentarios: 2 columnas — negativos izquierda, positivos derecha */}
+                {(customerVoice.highlights.length > 0 || customerVoice.concerns.length > 0) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    {/* Quejas — izquierda */}
+                    <div>
+                      <p className="text-xs font-bold text-rose-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                        <AlertTriangle size={13} /> A revisar ({customerVoice.concerns.length})
+                      </p>
+                      {customerVoice.concerns.length === 0 ? (
+                        <div className="bg-white rounded-2xl border border-gray-100 p-4 text-center text-sm text-gray-400">
+                          Sin quejas registradas
                         </div>
-                      ))}
+                      ) : (
+                        <div className="space-y-3">
+                          {customerVoice.concerns.map(r => (
+                            <div key={r.id} className="bg-white rounded-2xl border border-rose-100 p-4">
+                              <p className="text-sm text-gray-700 leading-relaxed">"{r.comment}"</p>
+                              <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                                {r.restaurant_rating != null && <span>⭐ {r.restaurant_rating}/5</span>}
+                                <span>{new Date(r.created_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
 
-                {/* Quejas o mejoras */}
-                {customerVoice.concerns.length > 0 && (
-                  <div>
-                    <p className="text-xs font-bold text-rose-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-                      <AlertTriangle size={13} /> Quejas o mejoras
-                    </p>
-                    <div className="space-y-3">
-                      {customerVoice.concerns.map(r => (
-                        <div key={r.id} className="bg-white rounded-2xl border border-rose-100 p-4">
-                          <p className="text-sm text-gray-700 leading-relaxed">"{r.comment}"</p>
-                          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-                            {r.restaurant_rating != null && <span>⭐ {r.restaurant_rating}/5</span>}
-                            <span>{new Date(r.created_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                          </div>
+                    {/* Elogios — derecha */}
+                    <div>
+                      <p className="text-xs font-bold text-green-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                        <ThumbsUp size={13} /> Elogios ({customerVoice.highlights.length})
+                      </p>
+                      {customerVoice.highlights.length === 0 ? (
+                        <div className="bg-white rounded-2xl border border-gray-100 p-4 text-center text-sm text-gray-400">
+                          Sin elogios registrados
                         </div>
-                      ))}
+                      ) : (
+                        <div className="space-y-3">
+                          {customerVoice.highlights.map(r => (
+                            <div key={r.id} className="bg-white rounded-2xl border border-green-100 p-4">
+                              <p className="text-sm text-gray-700 leading-relaxed">"{r.comment}"</p>
+                              <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                                {r.restaurant_rating != null && <span>⭐ {r.restaurant_rating}/5</span>}
+                                <span>{new Date(r.created_at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
