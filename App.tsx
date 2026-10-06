@@ -4,7 +4,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate, Navigate 
 import { 
   LayoutDashboard, PlusCircle, List, Settings, LogOut, ShoppingBag,
   Store, Users, Grid, AlertTriangle, Loader2, Globe, ShieldCheck, RefreshCw,
-  MessageSquareQuote, BarChart3, Bell, X, CheckCircle2, DollarSign, Menu, FolderTree, Image, BrainCircuit
+  MessageSquareQuote, BarChart3, Bell, X, CheckCircle2, DollarSign, Menu, FolderTree, Image, BrainCircuit, Percent
 } from 'lucide-react';
 import CreateItemPage from './pages/CreateItemPage';
 import MenuListPage from './pages/MenuListPage';
@@ -20,6 +20,7 @@ import RestaurantUsersPage from './pages/RestaurantUsersPage';
 import DashboardPage from './pages/DashboardPage';
 import FeedbackPage from './pages/FeedbackPage';
 import BannersPage from './pages/BannersPage';
+import PromotionsPage from './pages/PromotionsPage';
 import AiAnalysisPage from './pages/AiAnalysisPage';
 import { Restaurant, Profile, setGlobalRestaurant } from './types';
 import { isSupabaseConfigured, supabase } from './supabase';
@@ -496,6 +497,12 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
                 label="Banners"
                 onMobileClick={() => setIsMobileMenuOpen(false)}
               />
+              <SidebarLink
+                to="/promotions"
+                icon={Percent}
+                label="Promociones"
+                onMobileClick={() => setIsMobileMenuOpen(false)}
+              />
               <SidebarLink 
                 to="/tables" 
                 icon={Grid} 
@@ -607,6 +614,7 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
                 />
                 <SidebarLink to="/menu" icon={List} label="Productos" />
                 <SidebarLink to="/banners" icon={Image} label="Banners" />
+                <SidebarLink to="/promotions" icon={Percent} label="Promociones" />
                 <SidebarLink to="/tables" icon={Grid} label="Mesas" />
                 <SidebarLink to="/waiters" icon={Users} label="Meseros" />
                 <SidebarLink to="/feedback" icon={BarChart3} label="Calidad" />
@@ -734,6 +742,7 @@ const App: React.FC = () => {
                     <Route path="/edit/:id" element={<CreateItemPage />} />
                     <Route path="/menu" element={<MenuListPage />} />
                     <Route path="/banners" element={<BannersPage />} />
+                    <Route path="/promotions" element={<PromotionsPage />} />
                     <Route path="/tables" element={<TablesPage />} />
                     <Route path="/waiters" element={<WaitersPage />} />
                     <Route path="/feedback" element={<FeedbackPage />} />
