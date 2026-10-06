@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Restaurant, setGlobalRestaurant, PaymentConfig } from '../types';
 import { supabase, isSupabaseConfigured } from '../supabase';
+import PlatformFeePanel from '../components/PlatformFeePanel';
 
 interface SettingsPageProps {
   restaurant: Restaurant | null;
@@ -112,7 +113,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       // Cargar configuración de Mercado Pago
       const { data: mpData, error: mpError } = await supabase
         .from('payment_configs')
-        .select('id, restaurant_id, key_alias, key_alias_test, token_cbu, token_cbu_test, oauth_test_mode, oauth_requires_reconnect, user_account, oauth_connected_at, token_expires_at, provider, is_active, created_at')
+        .select('id, restaurant_id, key_alias, key_alias_test, token_cbu, token_cbu_test, oauth_test_mode, oauth_requires_reconnect, user_account, oauth_connected_at, token_expires_at, provider, is_active, created_at, platform_fee_bps')
         .eq('restaurant_id', restaurant.id)
         .eq('provider', 'mercadopago')
         .maybeSingle();
@@ -404,6 +405,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       </div>
 
       {activeTab === 'restaurant' ? (
+        <>
         <div className="bg-white rounded-[3rem] border border-gray-100 shadow-xl overflow-hidden animate-in slide-in-from-right-4">
            <div className="bg-gray-50 px-12 py-8 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -491,6 +493,16 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
              </div>
            </form>
         </div>
+
+        {restaurant?.id && (
+          <PlatformFeePanel
+            restaurantId={restaurant.id}
+            editable={false}
+            title="Comisión SplitMe"
+            subtitle="Tramos por volumen del mes. La define el equipo SplitMe; se liquida aparte (no se descuenta en Mercado Pago)."
+          />
+        )}
+        </>
       ) : (
         /* Pestaña de Pasarela de Pagos: Checkout Pro */
         <div className="bg-white rounded-[3rem] border border-gray-100 shadow-xl overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
@@ -501,7 +513,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                   <h2 className="text-2xl font-black tracking-tight">Medios de Pago</h2>
                 </div>
                 <p className="text-white/80 font-medium text-sm">
-                  Marketplace SplitMe + Payment Brick. El cobro va 100% al restaurante; SplitMe no retiene el dinero.
+                  Marketplace SplitMe + Payment Brick. El cobro va al restaurante; la comisión de plataforma (si aplica) la define el equipo SplitMe.
                 </p>
               </div>
               <div className="absolute top-0 right-0 p-10 opacity-10 rotate-12">

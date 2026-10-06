@@ -5,6 +5,7 @@ import { supabase } from '../supabase';
 import { Store, Plus, Search, MapPin, ExternalLink, Loader2, Globe, ShieldCheck, AlertTriangle, Key } from 'lucide-react';
 import { Restaurant } from '../types';
 import NewRestaurantModal from '../components/NewRestaurantModal';
+import PlatformFeePanel from '../components/PlatformFeePanel';
 
 const SuperAdminPage: React.FC = () => {
   const navigate = useNavigate();
@@ -101,6 +102,13 @@ const SuperAdminPage: React.FC = () => {
           </div>
         ))}
       </div>
+
+      <PlatformFeePanel
+        restaurantId={null}
+        editable
+        title="Tramos globales de comisión"
+        subtitle="Defaults para todos los locales. Se pueden personalizar por restaurante en su ficha. Liquidación aparte; no se descuenta en MP."
+      />
 
       {error && (
         <div className="p-6 bg-rose-50 border-2 border-rose-100 rounded-[2rem] flex items-center gap-4 text-rose-600">

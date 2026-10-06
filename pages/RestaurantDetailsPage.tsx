@@ -7,6 +7,7 @@ import {
   Calendar, Loader2, Save, UploadCloud, CheckCircle2, AlertCircle, TrendingUp, Copy, Check
 } from 'lucide-react';
 import { Restaurant } from '../types';
+import PlatformFeePanel from '../components/PlatformFeePanel';
 
 type TimeRange = 'weekly' | 'monthly' | 'yearly' | 'historical';
 
@@ -349,6 +350,16 @@ const RestaurantDetailsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Comisión SplitMe — tramos por volumen (liquidación aparte) */}
+      {id && (
+        <PlatformFeePanel
+          restaurantId={id}
+          editable
+          title="Comisión SplitMe"
+          subtitle="Tramos por volumen del mes. Se liquida aparte con el local; no se descuenta en Mercado Pago."
+        />
+      )}
 
       {/* Editor de Información */}
       <div className="bg-white rounded-[3.5rem] border border-gray-100 shadow-xl overflow-hidden">

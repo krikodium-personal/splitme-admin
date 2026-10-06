@@ -326,6 +326,14 @@ const OrderGroupCard: React.FC<{
   // Filtrar lotes: excluir CREADO = "por enviar a cocina" (seleccionados pero NO ordenados aún)
   // Solo incluir lo que el comensal ya envió a cocina (ENVIADO, PREPARANDO, LISTO, SERVIDO)
   const batches = (order.order_batches || []).filter((batch: any) => batch.status !== 'CREADO');
+  // Orden por flujo de estado (Comenzar Preparación → Marcar Listo → Marcar Servido → Servido);
+  // el número de envío sigue siendo el cronológico
+  const BATCH_STATUS_RANK: Record<string, number> = { ENVIADO: 0, PREPARANDO: 1, LISTO: 2, SERVIDO: 3 };
+  const displayBatches = batches
+    .map((batch: any, idx: number) => ({ batch, idx }))
+    .sort((a: any, b: any) =>
+      (BATCH_STATUS_RANK[a.batch.status] ?? 0) - (BATCH_STATUS_RANK[b.batch.status] ?? 0) || a.idx - b.idx
+    );
 
   // Total de la cuenta: desde columna total_amount de orders (calculado por trigger en BD, excluye batches CREADO)
   const orderTotal = Number(order.total_amount) || 0;
@@ -350,6 +358,8 @@ const OrderGroupCard: React.FC<{
   
   // Verificar si hay batches en CREADO para mostrar el mensaje "Pidiendo"
   const hasBatchesCreado = allBatches.some((b: any) => b.status === 'CREADO');
+
+  const pendingStartCount = allBatches.filter((b: any) => b.status === 'ENVIADO').length;
 
   // Verificar si todos los batches están en SERVIDO (excluyendo CREADO)
   const batchesToCheck = allBatches.filter((b: any) => b.status !== 'CREADO');
@@ -436,8 +446,19 @@ const OrderGroupCard: React.FC<{
       >
         <div className="flex flex-wrap justify-between items-center gap-4">
           <div className="flex items-center gap-4">
-            <div className={`w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm border border-gray-100 font-black text-xl transition-transform duration-500 ${isCollapsed ? 'scale-90' : 'scale-100'}`}>
+            <div className={`relative w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm border border-gray-100 font-black text-xl transition-transform duration-500 ${isCollapsed ? 'scale-90' : 'scale-100'}`}>
               {order.tables?.table_number || '??'}
+              {pendingStartCount > 0 && !isMesaCerrada && (
+                <span
+                  className="absolute -top-2 -left-2 flex h-6 min-w-6"
+                  title={`${pendingStartCount} ${pendingStartCount === 1 ? 'envío' : 'envíos'} para comenzar preparación`}
+                >
+                  <span className="absolute inset-0 rounded-full bg-red-500 opacity-75 animate-ping" />
+                  <span className="relative flex h-6 min-w-6 px-1.5 items-center justify-center rounded-full bg-red-600 text-white text-[11px] font-black leading-none shadow-md ring-2 ring-white animate-pulse">
+                    {pendingStartCount}
+                  </span>
+                </span>
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -511,7 +532,7 @@ const OrderGroupCard: React.FC<{
       <div className={`transition-all duration-500 ease-in-out overflow-hidden ${isCollapsed ? 'max-h-0' : 'max-h-[1200px]'}`}>
         <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-white max-h-[500px]">
           {batches.length > 0 ? (
-            batches.map((batch: any, idx: number) => (
+            displayBatches.map(({ batch, idx }: { batch: any; idx: number }) => (
               <BatchCard 
                 key={batch.id} 
                 batch={batch} 

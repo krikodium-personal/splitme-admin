@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
 import { CURRENT_RESTAURANT } from '../types';
-import { Trash2, GripVertical, Upload, Plus, Eye, EyeOff, Loader2, Check, X } from 'lucide-react';
+import { Trash2, GripVertical, Upload, Plus, Eye, EyeOff, Loader2, Check, X, Link2 } from 'lucide-react';
 
 interface Banner {
   id: string;
@@ -10,15 +10,24 @@ interface Banner {
   image_url: string;
   title: string | null;
   description: string | null;
+  target_category_id: string | null;
   sort_order: number;
   active: boolean;
   created_at: string;
+}
+
+interface CategoryOption {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  sort_order: number | null;
 }
 
 type EditingField = { id: string; field: 'title' | 'description' };
 
 const BannersPage: React.FC = () => {
   const [banners, setBanners] = useState<Banner[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState<EditingField | null>(null);
@@ -32,13 +41,30 @@ const BannersPage: React.FC = () => {
   const fetchBanners = async () => {
     if (!CURRENT_RESTAURANT?.id) return;
     setLoading(true);
-    const { data } = await supabase
-      .from('banners')
-      .select('*')
-      .eq('restaurant_id', CURRENT_RESTAURANT.id)
-      .order('sort_order', { ascending: true });
+    const [{ data }, { data: cats }] = await Promise.all([
+      supabase
+        .from('banners')
+        .select('*')
+        .eq('restaurant_id', CURRENT_RESTAURANT.id)
+        .order('sort_order', { ascending: true }),
+      supabase
+        .from('categories')
+        .select('id, name, parent_id, sort_order')
+        .eq('restaurant_id', CURRENT_RESTAURANT.id)
+        .order('sort_order', { ascending: true }),
+    ]);
     setBanners(data || []);
+    setCategories(cats || []);
     setLoading(false);
+  };
+
+  const topCategories = categories.filter(c => !c.parent_id);
+  const subcategoriesOf = (parentId: string) => categories.filter(c => c.parent_id === parentId);
+
+  const updateTarget = async (banner: Banner, targetId: string) => {
+    const value = targetId || null;
+    const { error } = await supabase.from('banners').update({ target_category_id: value }).eq('id', banner.id);
+    if (!error) setBanners(prev => prev.map(b => b.id === banner.id ? { ...b, target_category_id: value } : b));
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -202,6 +228,30 @@ const BannersPage: React.FC = () => {
                       {banner.description || <span className="italic">+ Agregar texto</span>}
                     </p>
                   )}
+                  {/* Link a categoría / subcategoría */}
+                  <div className="flex items-center gap-2">
+                    <Link2 size={14} className={banner.target_category_id ? 'text-indigo-500 shrink-0' : 'text-gray-300 shrink-0'} />
+                    <select
+                      value={banner.target_category_id || ''}
+                      onChange={e => updateTarget(banner, e.target.value)}
+                      className={`text-xs rounded-lg border px-2 py-1 outline-none focus:ring-2 focus:ring-indigo-400 max-w-full truncate ${banner.target_category_id ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-gray-200 bg-white text-gray-400'}`}
+                    >
+                      <option value="">Sin link</option>
+                      {topCategories.map(cat => {
+                        const subs = subcategoriesOf(cat.id);
+                        return subs.length === 0 ? (
+                          <option key={cat.id} value={cat.id}>{cat.name}</option>
+                        ) : (
+                          <optgroup key={cat.id} label={cat.name}>
+                            <option value={cat.id}>{cat.name} (toda la categoría)</option>
+                            {subs.map(sub => (
+                              <option key={sub.id} value={sub.id}>{cat.name} › {sub.name}</option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                    </select>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button onClick={() => toggleActive(banner)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors" title={banner.active ? 'Ocultar' : 'Mostrar'}>

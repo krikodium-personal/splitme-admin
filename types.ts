@@ -38,6 +38,8 @@ export interface PaymentConfig {
   token_cbu_test?: string | null;
   key_alias_test?: string | null;
   webhook_secret?: string | null; // Reservado; webhook de plataforma usa env MERCADOPAGO_WEBHOOK_SECRET
+  /** Comisión SplitMe en basis points (149 = 1.49%). Solo editable por super_admin. */
+  platform_fee_bps?: number | null;
   provider: string;
   is_active: boolean;
   created_at: string;
