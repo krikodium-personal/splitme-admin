@@ -1,9 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { CURRENT_RESTAURANT } from '../types';
-import { Trash2, Plus, Eye, EyeOff, Loader2, X, Pencil, Search, Percent, AlertTriangle, CalendarDays, Clock } from 'lucide-react';
+import { Trash2, Plus, Eye, EyeOff, Loader2, X, Pencil, Search, Percent, AlertTriangle, CalendarDays, Clock, Receipt } from 'lucide-react';
 
-type PromoType = 'nxm' | 'percent' | 'fixed_price' | 'amount_off' | 'second_unit';
+type PromoType = 'nxm' | 'percent' | 'fixed_price' | 'amount_off' | 'second_unit' | 'bill_tiers';
+
+interface BillTier {
+  min_amount: number;
+  percent: number;
+}
 
 interface Promotion {
   id: string;
@@ -15,6 +20,7 @@ interface Promotion {
   percent: number | null;
   amount: number | null;
   fixed_price: number | null;
+  bill_tiers: BillTier[] | null;
   active: boolean;
   starts_at: string | null;
   ends_at: string | null;
@@ -23,6 +29,11 @@ interface Promotion {
   end_time: string | null;
   created_at: string;
   promotion_menu_items: { menu_item_id: string }[];
+}
+
+interface TierDraft {
+  min_amount: string;
+  percent: string;
 }
 
 interface CategoryOption {
@@ -48,6 +59,7 @@ interface FormState {
   percent: string;
   amount: string;
   fixed_price: string;
+  tiers: TierDraft[];
   active: boolean;
   start_date: string;
   end_date: string;
@@ -65,6 +77,12 @@ const TYPE_OPTIONS: { id: PromoType; label: string; hint: string }[] = [
   { id: 'percent', label: 'X% de descuento', hint: 'Descuento porcentual en cada unidad.' },
   { id: 'amount_off', label: '$X menos por unidad', hint: 'Resta un monto fijo a cada unidad.' },
   { id: 'fixed_price', label: 'Precio promocional $X', hint: 'Reemplaza el precio base del producto. Los extras de variantes se suman encima.' },
+  { id: 'bill_tiers', label: 'Descuento por monto de cuenta', hint: 'Descuento sobre el total de la mesa según cuánto gastó. Ej.: desde $50.000, 10%; desde $100.000, 20%.' },
+];
+
+const DEFAULT_TIERS: TierDraft[] = [
+  { min_amount: '50000', percent: '10' },
+  { min_amount: '100000', percent: '20' },
 ];
 
 const DAY_CHIPS: { label: string; value: number }[] = [
@@ -90,6 +108,7 @@ const EMPTY_FORM: FormState = {
   percent: '',
   amount: '',
   fixed_price: '',
+  tiers: DEFAULT_TIERS,
   active: true,
   start_date: '',
   end_date: '',
@@ -101,6 +120,25 @@ const EMPTY_FORM: FormState = {
 
 const money = (n: number) => `$${n.toLocaleString('es-AR', { maximumFractionDigits: 2 })}`;
 const num = (n: number | null) => Number(n ?? 0);
+
+const sortedTiers = (tiers: BillTier[] | null) => [...(tiers ?? [])].sort((a, b) => a.min_amount - b.min_amount);
+
+/** "Desde $50.000: 10% · desde $100.000: 20%" */
+const tiersSummary = (tiers: BillTier[] | null) =>
+  sortedTiers(tiers)
+    .map((t, i, all) => {
+      const next = all[i + 1];
+      const range = next
+        ? t.min_amount > 0 ? `${money(t.min_amount)} a ${money(next.min_amount - 1)}` : `hasta ${money(next.min_amount - 1)}`
+        : t.min_amount > 0 ? `desde ${money(t.min_amount)}` : 'cualquier monto';
+      return `${range}: ${t.percent}%`;
+    })
+    .join(' · ');
+
+const tiersFromDrafts = (drafts: TierDraft[]): BillTier[] =>
+  drafts
+    .map(t => ({ min_amount: Number(t.min_amount || 0), percent: Number(t.percent) }))
+    .sort((a, b) => a.min_amount - b.min_amount);
 const normalizeTime = (t: string) => (t.length === 5 ? `${t}:00` : t.slice(0, 8));
 
 const nowInBuenosAires = (now: Date) => {
@@ -137,13 +175,14 @@ const isLiveNow = (p: Promotion, now: Date) => {
   return true;
 };
 
-const badgeText = (p: Pick<Promotion, 'type' | 'buy_qty' | 'pay_qty' | 'percent' | 'amount' | 'fixed_price'>) => {
+const badgeText = (p: Pick<Promotion, 'type' | 'buy_qty' | 'pay_qty' | 'percent' | 'amount' | 'fixed_price' | 'bill_tiers'>) => {
   switch (p.type) {
     case 'nxm': return `${num(p.buy_qty)}x${num(p.pay_qty)}`;
     case 'percent': return `${num(p.percent)}% OFF`;
     case 'second_unit': return `2da al ${num(p.percent)}%`;
     case 'amount_off': return `${money(num(p.amount))} OFF`;
     case 'fixed_price': return `Precio promo ${money(num(p.fixed_price))}`;
+    case 'bill_tiers': return `Cuenta hasta ${Math.max(0, ...(p.bill_tiers ?? []).map(t => t.percent))}%`;
   }
 };
 
@@ -172,6 +211,9 @@ const formFromPromotion = (p: Promotion): FormState => ({
   percent: p.percent?.toString() ?? '',
   amount: p.amount?.toString() ?? '',
   fixed_price: p.fixed_price?.toString() ?? '',
+  tiers: p.bill_tiers?.length
+    ? sortedTiers(p.bill_tiers).map(t => ({ min_amount: String(t.min_amount), percent: String(t.percent) }))
+    : DEFAULT_TIERS,
   active: p.active,
   start_date: startDateOf(p),
   end_date: endDateOf(p),
@@ -192,10 +234,17 @@ const validateForm = (f: FormState): string | null => {
   }
   if (f.type === 'amount_off' && (f.amount === '' || !(Number(f.amount) > 0))) return 'El monto a descontar tiene que ser mayor a 0.';
   if (f.type === 'fixed_price' && (f.fixed_price === '' || !(Number(f.fixed_price) >= 0))) return 'Ingresá un precio promocional válido.';
+  if (f.type === 'bill_tiers') {
+    if (f.tiers.length === 0) return 'Agregá al menos un rango.';
+    if (f.tiers.some(t => !(Number(t.min_amount || 0) >= 0))) return 'Los montos de cada rango tienen que ser 0 o más.';
+    if (f.tiers.some(t => t.percent === '' || !(Number(t.percent) > 0 && Number(t.percent) <= 100))) return 'El % de cada rango tiene que ser mayor a 0 y hasta 100.';
+    const mins = f.tiers.map(t => Number(t.min_amount || 0));
+    if (new Set(mins).size !== mins.length) return 'Hay dos rangos que empiezan en el mismo monto.';
+  }
   if (f.start_date && f.end_date && f.end_date < f.start_date) return 'La fecha de fin no puede ser anterior a la de inicio.';
   if (!!f.start_time !== !!f.end_time) return 'Completá las dos horas (desde y hasta) o dejá ambas vacías.';
   if (f.start_time && f.start_time === f.end_time) return 'La hora de inicio y de fin no pueden ser iguales.';
-  if (f.menu_item_ids.length === 0) return 'Elegí al menos un producto.';
+  if (f.type !== 'bill_tiers' && f.menu_item_ids.length === 0) return 'Elegí al menos un producto.';
   return null;
 };
 
@@ -323,6 +372,7 @@ const PromotionsPage: React.FC = () => {
       percent: form.type === 'percent' || form.type === 'second_unit' ? Number(form.percent) : null,
       amount: form.type === 'amount_off' ? Number(form.amount) : null,
       fixed_price: form.type === 'fixed_price' ? Number(form.fixed_price) : null,
+      bill_tiers: form.type === 'bill_tiers' ? tiersFromDrafts(form.tiers) : null,
       active: form.active,
       starts_at: form.start_date ? `${form.start_date}T00:00:00-03:00` : null,
       ends_at: form.end_date ? `${addOneDay(form.end_date)}T00:00:00-03:00` : null,
@@ -345,10 +395,11 @@ const PromotionsPage: React.FC = () => {
       promoId = (data as unknown as { id: string }).id;
     }
 
+    const linkedItemIds = form.type === 'bill_tiers' ? [] : form.menu_item_ids;
     const { error: deleteError } = await supabase.from('promotion_menu_items').delete().eq('promotion_id', promoId);
-    const { error: insertError } = deleteError
+    const { error: insertError } = deleteError || linkedItemIds.length === 0
       ? { error: deleteError }
-      : await supabase.from('promotion_menu_items').insert(form.menu_item_ids.map(menu_item_id => ({ promotion_id: promoId, menu_item_id })));
+      : await supabase.from('promotion_menu_items').insert(linkedItemIds.map(menu_item_id => ({ promotion_id: promoId, menu_item_id })));
 
     setSaving(false);
     if (insertError) {
@@ -361,8 +412,13 @@ const PromotionsPage: React.FC = () => {
     fetchAll();
   };
 
+  const otherActiveBillPromos = useMemo(
+    () => (form?.type === 'bill_tiers' ? promotions.filter(p => p.id !== form.id && p.active && p.type === 'bill_tiers') : []),
+    [form, promotions]
+  );
+
   const overlapWarnings = useMemo(() => {
-    if (!form) return [];
+    if (!form || form.type === 'bill_tiers') return [];
     const selected = new Set(form.menu_item_ids);
     return promotions
       .filter(p => p.id !== form.id && p.active)
@@ -374,6 +430,7 @@ const PromotionsPage: React.FC = () => {
   }, [form, promotions]);
 
   const previewLine = (f: FormState) => {
+    if (f.type === 'bill_tiers') return null;
     if (validateForm({ ...f, name: f.name || 'x', menu_item_ids: ['x'], start_date: '', end_date: '', start_time: '', end_time: '' })) return null;
     const firstItem = f.menu_item_ids.map(id => menuItemById.get(id)).find(i => i && i.price != null);
     const price = firstItem ? Number(firstItem.price) : 10000;
@@ -394,6 +451,21 @@ const PromotionsPage: React.FC = () => {
       ? <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Vigente ahora</span>
       : <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Fuera de horario</span>;
   };
+
+  const patchTier = (index: number, patch: Partial<TierDraft>) =>
+    setForm(prev => (prev ? { ...prev, tiers: prev.tiers.map((t, i) => (i === index ? { ...t, ...patch } : t)) } : prev));
+
+  const addTier = () =>
+    setForm(prev => {
+      if (!prev) return prev;
+      const last = prev.tiers[prev.tiers.length - 1];
+      const nextMin = last ? Number(last.min_amount || 0) + 50000 : 0;
+      const nextPct = last ? Math.min(100, Number(last.percent || 0) + 5) : 10;
+      return { ...prev, tiers: [...prev.tiers, { min_amount: String(nextMin), percent: String(nextPct) }] };
+    });
+
+  const removeTier = (index: number) =>
+    setForm(prev => (prev ? { ...prev, tiers: prev.tiers.filter((_, i) => i !== index) } : prev));
 
   const renderProducts = (promo: Promotion) => {
     const names = promo.promotion_menu_items.map(pmi => menuItemById.get(pmi.menu_item_id)?.name).filter(Boolean) as string[];
@@ -487,9 +559,66 @@ const PromotionsPage: React.FC = () => {
                   <input type="number" min={0} step="any" value={f.fixed_price} onChange={e => patchForm({ fixed_price: e.target.value })} placeholder="Ej: 8000" className={inputClass} />
                 </div>
               )}
+              {f.type === 'bill_tiers' && (
+                <div className="space-y-2">
+                  <label className={labelClass}>Rangos de la cuenta total de la mesa</label>
+                  {f.tiers.map((tier, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500 w-14 shrink-0">Desde $</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={tier.min_amount}
+                        onChange={e => patchTier(index, { min_amount: e.target.value })}
+                        placeholder="0"
+                        className={inputClass.replace('w-full', 'w-40')}
+                      />
+                      <span className="text-sm text-gray-400">→</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        step="any"
+                        value={tier.percent}
+                        onChange={e => patchTier(index, { percent: e.target.value })}
+                        placeholder="10"
+                        className={inputClass.replace('w-full', 'w-20')}
+                      />
+                      <span className="text-sm text-gray-500 whitespace-nowrap">% off</span>
+                      <button
+                        type="button"
+                        onClick={() => removeTier(index)}
+                        disabled={f.tiers.length <= 1}
+                        className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400"
+                        title="Quitar rango"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={addTier} className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800">
+                    <Plus size={13} /> Agregar rango
+                  </button>
+                  {!validateForm({ ...f, name: f.name || 'x', start_date: '', end_date: '', start_time: '', end_time: '' }) && (
+                    <p className="text-xs text-indigo-600">Cuentas de {tiersSummary(tiersFromDrafts(f.tiers))}</p>
+                  )}
+                  <p className="text-[11px] text-gray-400">
+                    Se aplica el % del rango alcanzado a toda la cuenta, sobre los precios ya con promos de producto.
+                    Cuando alguien de la mesa paga, el % queda fijo para lo que se pida después.
+                  </p>
+                  {otherActiveBillPromos.length > 0 && (
+                    <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                      <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle size={13} /> Ya hay otra promo de cuenta activa: {otherActiveBillPromos.map(p => `“${p.name}”`).join(', ')}</p>
+                      <p className="text-amber-700 mt-0.5">Si se superponen en horario, se aplica la creada más recientemente.</p>
+                    </div>
+                  )}
+                </div>
+              )}
               {preview && <p className="text-xs text-indigo-600 mt-2">Ej.: {preview}</p>}
             </div>
 
+            {f.type !== 'bill_tiers' && (
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Productos</span>
@@ -536,6 +665,7 @@ const PromotionsPage: React.FC = () => {
                 </div>
               )}
             </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -608,7 +738,7 @@ const PromotionsPage: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Promociones</h1>
-          <p className="text-sm text-gray-500 mt-1">Descuentos que se aplican automáticamente a los productos cuando la promo está vigente</p>
+          <p className="text-sm text-gray-500 mt-1">Descuentos que se aplican automáticamente a productos o al total de la cuenta cuando la promo está vigente</p>
         </div>
         <button
           onClick={() => openForm()}
@@ -645,9 +775,16 @@ const PromotionsPage: React.FC = () => {
                     <p className="text-sm font-semibold text-gray-800 truncate">{promo.name}</p>
                     {renderStatus(promo)}
                   </div>
-                  <p className="text-xs text-gray-500 truncate">
-                    <span className="font-medium text-gray-600">{promo.promotion_menu_items.length} producto{promo.promotion_menu_items.length === 1 ? '' : 's'}:</span> {renderProducts(promo)}
-                  </p>
+                  {promo.type === 'bill_tiers' ? (
+                    <p className="text-xs text-gray-500 truncate flex items-center gap-1.5">
+                      <Receipt size={12} className="shrink-0 text-gray-400" />
+                      <span><span className="font-medium text-gray-600">Cuentas de</span> {tiersSummary(promo.bill_tiers)}</span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500 truncate">
+                      <span className="font-medium text-gray-600">{promo.promotion_menu_items.length} producto{promo.promotion_menu_items.length === 1 ? '' : 's'}:</span> {renderProducts(promo)}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-400 flex items-center gap-1.5">
                     {promo.start_time || promo.days_of_week?.length ? <Clock size={12} /> : <CalendarDays size={12} />}
                     {scheduleSummary(promo)}

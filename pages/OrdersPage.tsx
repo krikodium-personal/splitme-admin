@@ -337,6 +337,7 @@ const OrderGroupCard: React.FC<{
 
   // Total de la cuenta: desde columna total_amount de orders (calculado por trigger en BD, excluye batches CREADO)
   const orderTotal = Number(order.total_amount) || 0;
+  const billDiscountAmount = Number(order.discount_amount) || 0;
 
   // Para la lógica de estado, usar todos los batches (incluyendo CREADO)
   const allBatches = order.order_batches || [];
@@ -554,6 +555,16 @@ const OrderGroupCard: React.FC<{
         <div className="px-8 py-5 bg-slate-50/50 border-t border-gray-100">
           <div className="flex justify-between items-center mb-4">
             <div>
+              {billDiscountAmount > 0 && (
+                <div className="mb-2 space-y-0.5">
+                  <p className="text-[10px] font-bold text-slate-400">
+                    Subtotal ${Number(order.subtotal_amount || 0).toLocaleString('es-CL')}
+                  </p>
+                  <p className="text-[10px] font-bold text-emerald-600">
+                    Descuento por monto de cuenta {Number(order.discount_percent)}%: −${billDiscountAmount.toLocaleString('es-CL')}
+                  </p>
+                </div>
+              )}
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Total Acumulado</p>
               <p className="text-2xl font-black text-indigo-600 tracking-tighter">${orderTotal.toLocaleString('es-CL')}</p>
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5 mt-2">Diferencia a saldar</p>
