@@ -311,7 +311,8 @@ const BatchCard: React.FC<{
 
 const OrderGroupCard: React.FC<{ 
   order: any, 
-  onCloseMesa: (order: any) => Promise<void>,
+  /** Devuelve true si la mesa se cerró correctamente. */
+  onCloseMesa: (order: any) => Promise<boolean | void>,
   onUpdateBatchStatus: (batchId: string, newStatus: string) => void,
   onRemoveOrderItem?: (orderItemId: string) => Promise<void>,
   onMarkGuestAsPaid: (guestId: string) => void,
@@ -323,6 +324,7 @@ const OrderGroupCard: React.FC<{
   // Inicializamos colapsado por defecto, a menos que se fuerce la expansión
   const [isCollapsed, setIsCollapsed] = useState(!forceExpanded);
   const [copiedPaymentId, setCopiedPaymentId] = useState<string | null>(null);
+  const [isClosingMesa, setIsClosingMesa] = useState(false);
   // Filtrar lotes: excluir CREADO = "por enviar a cocina" (seleccionados pero NO ordenados aún)
   // Solo incluir lo que el comensal ya envió a cocina (ENVIADO, PREPARANDO, LISTO, SERVIDO)
   const batches = (order.order_batches || []).filter((batch: any) => batch.status !== 'CREADO');
@@ -358,7 +360,8 @@ const OrderGroupCard: React.FC<{
   );
   
   // Verificar si hay batches en CREADO para mostrar el mensaje "Pidiendo"
-  const hasBatchesCreado = allBatches.some((b: any) => b.status === 'CREADO');
+  // Un envío CREADO sin platos es un borrador vacío: no cuenta como "pidiendo"
+  const hasBatchesCreado = allBatches.some((b: any) => b.status === 'CREADO' && (b.order_items?.length ?? 0) > 0);
 
   const pendingStartCount = allBatches.filter((b: any) => b.status === 'ENVIADO').length;
 
@@ -384,7 +387,10 @@ const OrderGroupCard: React.FC<{
   const totalAmount = orderTotal;
   // Tolerancia para redondeos: al menos 1 unidad o 0.5% del total (útil en CLP y otros)
   const amountTolerance = Math.max(1, totalAmount * 0.005);
-  const isTotalAmountPaid = totalAmount > 0 && Math.abs(totalPaidAmount - totalAmount) <= amountTolerance;
+  // Cubierto = se pagó al menos el total. Si se cobró de más (p. ej. un pago duplicado) la mesa igual se puede cerrar;
+  // el exceso se avisa abajo para que se revise.
+  const isTotalAmountPaid = totalAmount > 0 && totalPaidAmount >= totalAmount - amountTolerance;
+  const overpaidAmount = totalPaidAmount - totalAmount > amountTolerance ? totalPaidAmount - totalAmount : 0;
   const rawOutstandingAmount = totalAmount - totalPaidAmount;
   const outstandingAmount = Math.abs(rawOutstandingAmount) <= amountTolerance ? 0 : Math.max(0, rawOutstandingAmount);
 
@@ -504,13 +510,29 @@ const OrderGroupCard: React.FC<{
               </span>
               {isMesaListaParaCerrar && (
                 <button
+                  disabled={isClosingMesa}
                   onClick={async (e) => {
                     e.stopPropagation();
-                    await onCloseMesa(order);
+                    if (isClosingMesa) return;
+                    setIsClosingMesa(true);
+                    try {
+                      const cerrada = await onCloseMesa(order);
+                      // Mesa cerrada: se contrae la tarjeta del pedido
+                      if (cerrada) setIsCollapsed(true);
+                    } finally {
+                      setIsClosingMesa(false);
+                    }
                   }}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-sm active:scale-95"
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-sm active:scale-95 disabled:opacity-70 disabled:cursor-wait disabled:active:scale-100 inline-flex items-center gap-2"
                 >
-                  Cerrar mesa
+                  {isClosingMesa ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin" />
+                      Cerrando...
+                    </>
+                  ) : (
+                    'Cerrar mesa'
+                  )}
                 </button>
               )}
               <button 
@@ -571,6 +593,11 @@ const OrderGroupCard: React.FC<{
               <p className={`text-xl font-black tracking-tighter ${outstandingAmount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                 ${outstandingAmount.toLocaleString('es-CL')}
               </p>
+              {overpaidAmount > 0 && (
+                <p className="mt-1 text-[10px] font-black text-red-600">
+                  ⚠ Se registró ${overpaidAmount.toLocaleString('es-CL')} de más: revisá si hay un pago duplicado.
+                </p>
+              )}
             </div>
             <div className="px-4 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-[9px] font-black uppercase tracking-widest border border-indigo-100">
               {batches.length} {batches.length === 1 ? 'Envío' : 'Envíos'}
@@ -1928,10 +1955,10 @@ const OrdersPage: React.FC = () => {
     }
   };
 
-  const handleCloseMesa = async (order: any): Promise<void> => {
+  const handleCloseMesa = async (order: any): Promise<boolean> => {
     if (!CURRENT_RESTAURANT?.id) {
       setErrorMsg("No hay restaurante seleccionado");
-      return;
+      return false;
     }
 
     try {
@@ -1955,19 +1982,19 @@ const OrdersPage: React.FC = () => {
         if (rpcError.message?.includes('function') || rpcError.message?.includes('does not exist') || rpcError.code === '42883') {
           setErrorMsg("⚠️ La función de cerrar orden no está disponible. Ejecuta close_order_cerrado_function.sql en Supabase SQL Editor.");
         }
-        return;
+        return false;
       }
 
       if (rpcResult && rpcResult.error) {
         console.error("❌ Error en la función RPC:", rpcResult.error);
         setErrorMsg("No se pudo cerrar la mesa: " + (rpcResult.error || 'Error desconocido'));
-        return;
+        return false;
       }
 
       if (!rpcResult) {
         console.error("❌ La función RPC no devolvió resultado");
         setErrorMsg("No se pudo cerrar la mesa: La función no devolvió resultado");
-        return;
+        return false;
       }
 
       console.log('✅ Orden cerrada usando RPC:', rpcResult);
@@ -1977,7 +2004,7 @@ const OrdersPage: React.FC = () => {
       if (rpcResult.status && !validClosedStatuses.includes(rpcResult.status)) {
         console.error("❌ El status no se actualizó correctamente. Status actual:", rpcResult.status);
         setErrorMsg(`El status no se actualizó. Status actual: ${rpcResult.status}, esperado: CERRADO o Pagado`);
-        return;
+        return false;
       }
 
       console.log(`✅ Orden cerrada correctamente con status: ${rpcResult.status || 'CERRADO'}`);
@@ -1998,9 +2025,11 @@ const OrdersPage: React.FC = () => {
       
       // Refrescar las órdenes
       await fetchActiveOrders();
+      return true;
     } catch (err: any) {
       console.error("Error al cerrar la mesa:", err);
       setErrorMsg("No se pudo cerrar la mesa: " + (err.message || 'Error desconocido'));
+      return false;
     } finally {
       setClosingOrderId(null);
     }

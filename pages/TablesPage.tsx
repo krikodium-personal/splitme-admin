@@ -296,7 +296,7 @@ const TablesPage: React.FC = () => {
 
   const getTableUrl = (tableNumber: string) => {
     // URL de producción final para la app de comensales
-    const baseUrl = "https://splitme-guests.vercel.app";
+    const baseUrl = "https://splitme.krikorian.ar/guest";
     const accessCode = CURRENT_RESTAURANT?.access_code || CURRENT_RESTAURANT?.id;
     return `${baseUrl}/?res=${accessCode}&table=${tableNumber}`;
   };

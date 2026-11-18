@@ -22,7 +22,7 @@ import FeedbackPage from './pages/FeedbackPage';
 import BannersPage from './pages/BannersPage';
 import PromotionsPage from './pages/PromotionsPage';
 import AiAnalysisPage from './pages/AiAnalysisPage';
-import { Restaurant, Profile, setGlobalRestaurant } from './types';
+import { Restaurant, Profile, setGlobalRestaurant, CURRENT_RESTAURANT } from './types';
 import { isSupabaseConfigured, supabase } from './supabase';
 
 interface PaymentToast {
@@ -71,10 +71,22 @@ const SidebarLink = ({ to, icon: Icon, label, badgeCount, onNavigate, onMobileCl
   );
 };
 
-const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, restaurant: Restaurant | null }> = ({ children, profile, restaurant }) => {
+// Restaurante que el super admin está administrando: se recuerda en la sesión del navegador para que las
+// pantallas del restaurante (/orders, /menu, ...) sigan sabiendo cuál es al navegar o recargar.
+const MANAGED_KEY = 'splitme_managed_restaurant';
+const readManagedId = (): string | null => { try { return sessionStorage.getItem(MANAGED_KEY); } catch { return null; } };
+const writeManagedId = (id: string) => { try { sessionStorage.setItem(MANAGED_KEY, id); } catch { /* sin storage */ } };
+
+const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, restaurant: Restaurant | null }> = ({ children, profile, restaurant: ownRestaurant }) => {
   const location = useLocation();
+  const isSuper = profile?.role === 'super_admin';
   const restaurantIdFromPath = location.pathname.match(/^\/super-admin\/restaurant\/([^/]+)/)?.[1];
+  // El super admin ve las pantallas del restaurante fuera de /super-admin (rutas /orders, /menu, ...)
+  const isRestaurantRoute = isSuper && !location.pathname.startsWith('/super-admin');
+  const managedId = isSuper ? (restaurantIdFromPath ?? (isRestaurantRoute ? readManagedId() : null)) : null;
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
+  // Para el super admin, el restaurante "actual" es el que está administrando; para el resto, el suyo
+  const restaurant = isSuper ? selectedRestaurant : ownRestaurant;
   const [toasts, setToasts] = useState<PaymentToast[]>([]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -83,15 +95,22 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
   const [newBatchesByOrder, setNewBatchesByOrder] = useState<Set<string>>(new Set());
   const notifiedBatchesRef = useRef<Set<string>>(new Set()); // Para evitar notificar el mismo batch dos veces
   
-  // Cargar restaurante seleccionado cuando super_admin navega a uno
+  // Cargar el restaurante que el super admin está administrando (y dejarlo como restaurante global de las pantallas)
   useEffect(() => {
-    if (restaurantIdFromPath) {
-      supabase.from('restaurants').select('*').eq('id', restaurantIdFromPath).single()
-        .then(({ data }) => setSelectedRestaurant(data || null));
+    if (restaurantIdFromPath) writeManagedId(restaurantIdFromPath);
+  }, [restaurantIdFromPath]);
+
+  useEffect(() => {
+    if (managedId) {
+      supabase.from('restaurants').select('*').eq('id', managedId).single()
+        .then(({ data }) => {
+          if (data) setGlobalRestaurant(data as unknown as Restaurant);
+          setSelectedRestaurant(data || null);
+        });
     } else {
       setSelectedRestaurant(null);
     }
-  }, [restaurantIdFromPath]);
+  }, [managedId]);
 
   // Limpiar notificaciones cuando se está en la página de Pedidos
   useEffect(() => {
@@ -336,6 +355,54 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
     }
   }, [restaurant?.id]); // Solo ejecutar cuando cambia el ID del restaurante, no el objeto completo
 
+  // Enlaces de administración de un restaurante (los mismos para su admin y para el super admin que lo administra)
+  const restaurantNav = (close?: () => void) => (
+    <>
+      <SidebarLink to="/" icon={LayoutDashboard} label="Dashboard" onMobileClick={close} />
+      <SidebarLink
+        to="/orders"
+        icon={ShoppingBag}
+        label="Pedidos"
+        badgeCount={newBatchesCount > 0 ? newBatchesCount : undefined}
+        onNavigate={() => {
+          // Limpiar notificaciones cuando se navega a Pedidos
+          if (location.pathname !== '/orders') clearNewBatches();
+        }}
+        onMobileClick={close}
+      />
+      <SidebarLink to="/menu" icon={List} label="Productos" onMobileClick={close} />
+      <SidebarLink to="/banners" icon={Image} label="Banners" onMobileClick={close} />
+      <SidebarLink to="/promotions" icon={Percent} label="Promociones" onMobileClick={close} />
+      <SidebarLink to="/tables" icon={Grid} label="Mesas" onMobileClick={close} />
+      <SidebarLink to="/waiters" icon={Users} label="Meseros" onMobileClick={close} />
+      <SidebarLink to="/feedback" icon={BarChart3} label="Calidad" onMobileClick={close} />
+      <SidebarLink to="/ai-analysis" icon={BrainCircuit} label="Análisis AI" onMobileClick={close} />
+      <SidebarLink to="/create" icon={PlusCircle} label="Añadir" onMobileClick={close} />
+      <SidebarLink to="/menu-structure" icon={FolderTree} label="Estructura menú" onMobileClick={close} />
+      <SidebarLink to="/settings" icon={Settings} label="Configuración" onMobileClick={close} />
+    </>
+  );
+
+  const renderNav = (close?: () => void) =>
+    isSuper ? (
+      <>
+        <SidebarLink to="/super-admin" icon={Globe} label="Inicio" onMobileClick={close} />
+        {managedId && (
+          <>
+            <div className="px-4 py-2 mt-4 text-xs font-black text-gray-400 uppercase tracking-widest truncate">
+              {selectedRestaurant?.name || 'Cargando...'}
+            </div>
+            <SidebarLink to={`/super-admin/restaurant/${managedId}`} icon={Store} label="Datos del restaurante" onMobileClick={close} />
+            <SidebarLink to={`/super-admin/restaurant/${managedId}/users`} icon={Users} label="Usuarios" onMobileClick={close} />
+            <div className="px-4 pt-4 pb-1 text-[10px] font-black text-gray-300 uppercase tracking-widest">Administración</div>
+            {restaurantNav(close)}
+          </>
+        )}
+      </>
+    ) : (
+      restaurantNav(close)
+    );
+
   const removeToast = (id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
@@ -362,13 +429,13 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
       Object.keys(localStorage).forEach(key => {
         if (key.startsWith('sb-')) localStorage.removeItem(key);
       });
-      window.location.href = '/login';
+      window.location.href = '/admin/login';
     } catch (error) {
       console.error("Error signing out:", error);
       Object.keys(localStorage).forEach(key => {
         if (key.startsWith('sb-')) localStorage.removeItem(key);
       });
-      window.location.href = '/login';
+      window.location.href = '/admin/login';
     }
   };
 
@@ -435,118 +502,7 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
           </button>
         </div>
         <nav className="space-y-2 flex-1">
-          {profile?.role === 'super_admin' ? (
-            <>
-              <SidebarLink 
-                to="/super-admin" 
-                icon={Globe} 
-                label="Inicio" 
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              {restaurantIdFromPath && (
-                <>
-                  <div className="px-4 py-2 mt-4 text-xs font-black text-gray-400 uppercase tracking-widest truncate">
-                    {selectedRestaurant?.name || 'Cargando...'}
-                  </div>
-                  <SidebarLink 
-                    to={`/super-admin/restaurant/${restaurantIdFromPath}`}
-                    icon={Store}
-                    label="Datos del restaurante"
-                    onMobileClick={() => setIsMobileMenuOpen(false)}
-                  />
-                  <SidebarLink 
-                    to={`/super-admin/restaurant/${restaurantIdFromPath}/users`}
-                    icon={Users} 
-                    label="Usuarios" 
-                    onMobileClick={() => setIsMobileMenuOpen(false)}
-                  />
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <SidebarLink 
-                to="/" 
-                icon={LayoutDashboard} 
-                label="Dashboard" 
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink 
-                to="/orders" 
-                icon={ShoppingBag} 
-                label="Pedidos" 
-                badgeCount={newBatchesCount > 0 ? newBatchesCount : undefined} 
-                onNavigate={() => {
-                  // Limpiar notificaciones cuando se navega a Pedidos
-                  if (location.pathname !== '/orders') {
-                    console.log('🧹 Limpiando notificaciones al navegar a Pedidos');
-                    clearNewBatches();
-                  }
-                }}
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink
-                to="/menu"
-                icon={List}
-                label="Productos"
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink
-                to="/banners"
-                icon={Image}
-                label="Banners"
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink
-                to="/promotions"
-                icon={Percent}
-                label="Promociones"
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink 
-                to="/tables" 
-                icon={Grid} 
-                label="Mesas" 
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink 
-                to="/waiters" 
-                icon={Users} 
-                label="Meseros" 
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink
-                to="/feedback"
-                icon={BarChart3}
-                label="Calidad"
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink
-                to="/ai-analysis"
-                icon={BrainCircuit}
-                label="Análisis AI"
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink 
-                to="/create" 
-                icon={PlusCircle} 
-                label="Añadir" 
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink 
-                to="/menu-structure" 
-                icon={FolderTree} 
-                label="Estructura menú" 
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-              <SidebarLink 
-                to="/settings" 
-                icon={Settings} 
-                label="Configuración" 
-                onMobileClick={() => setIsMobileMenuOpen(false)}
-              />
-            </>
-          )}
+          {renderNav(() => setIsMobileMenuOpen(false))}
         </nav>
         <button 
           onClick={() => {
@@ -575,56 +531,8 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
             )}
           </div>
           <nav className="space-y-2 flex-1">
-            {profile?.role === 'super_admin' ? (
-              <>
-                <SidebarLink to="/super-admin" icon={Globe} label="Inicio" />
-                {restaurantIdFromPath && (
-                  <>
-                    <div className="px-4 py-2 mt-4 text-xs font-black text-gray-400 uppercase tracking-widest truncate">
-                      {selectedRestaurant?.name || 'Cargando...'}
-                    </div>
-                    <SidebarLink 
-                      to={`/super-admin/restaurant/${restaurantIdFromPath}`}
-                      icon={Store}
-                      label="Datos del restaurante"
-                    />
-                    <SidebarLink 
-                      to={`/super-admin/restaurant/${restaurantIdFromPath}/users`}
-                      icon={Users} 
-                      label="Usuarios" 
-                    />
-                  </>
-                )}
-              </>
-            ) : (
-              <>
-                <SidebarLink to="/" icon={LayoutDashboard} label="Dashboard" />
-                <SidebarLink 
-                  to="/orders" 
-                  icon={ShoppingBag} 
-                  label="Pedidos" 
-                  badgeCount={newBatchesCount > 0 ? newBatchesCount : undefined} 
-                  onNavigate={() => {
-                    // Limpiar notificaciones cuando se navega a Pedidos
-                    if (location.pathname !== '/orders') {
-                      console.log('🧹 Limpiando notificaciones al navegar a Pedidos');
-                      clearNewBatches();
-                    }
-                  }}
-                />
-                <SidebarLink to="/menu" icon={List} label="Productos" />
-                <SidebarLink to="/banners" icon={Image} label="Banners" />
-                <SidebarLink to="/promotions" icon={Percent} label="Promociones" />
-                <SidebarLink to="/tables" icon={Grid} label="Mesas" />
-                <SidebarLink to="/waiters" icon={Users} label="Meseros" />
-                <SidebarLink to="/feedback" icon={BarChart3} label="Calidad" />
-                <SidebarLink to="/ai-analysis" icon={BrainCircuit} label="Análisis AI" />
-                <SidebarLink to="/create" icon={PlusCircle} label="Añadir" />
-                <SidebarLink to="/menu-structure" icon={FolderTree} label="Estructura menú" />
-                <SidebarLink to="/settings" icon={Settings} label="Configuración" />
-              </>
-            )}
-          </nav>
+          {renderNav()}
+        </nav>
           <button onClick={handleLogout} className="flex items-center space-x-3 text-gray-400 hover:text-red-500 transition-colors p-4 mt-auto">
             <LogOut size={20} />
             <span className="font-medium text-sm">Salir</span>
@@ -653,7 +561,15 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
             </div>
           </header>
           <NewBatchesContext.Provider value={{ newBatchesByOrder, clearNewBatches, clearNewBatchForOrder }}>
-            <div className="p-8">{children}</div>
+            <div className="p-8">
+              {isRestaurantRoute ? (
+                managedId ? (
+                  selectedRestaurant?.id === managedId ? children : (
+                    <div className="flex items-center justify-center py-24"><Loader2 className="text-indigo-600 animate-spin" size={32} /></div>
+                  )
+                ) : <Navigate to="/super-admin" replace />
+              ) : children}
+            </div>
           </NewBatchesContext.Provider>
         </main>
       </div>
@@ -667,6 +583,11 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
 
 // Hook para usar el contexto de nuevos batches
 export const useNewBatches = () => useContext(NewBatchesContext);
+
+// Pantallas que reciben el restaurante por prop: para el super admin se lee el restaurante que está administrando
+// en el momento de dibujar (el Layout ya lo cargó), no cuando se arma el árbol de rutas.
+const ManagedMenuStructurePage: React.FC = () => <MenuStructurePage restaurant={CURRENT_RESTAURANT} />;
+const ManagedSettingsPage: React.FC = () => <SettingsPage restaurant={CURRENT_RESTAURANT} />;
 
 const App: React.FC = () => {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -720,7 +641,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/admin">
       <Routes>
         <Route path="/login" element={!profile ? <LoginPage /> : <Navigate to="/" />} />
         <Route path="/*" element={
@@ -732,6 +653,20 @@ const App: React.FC = () => {
                     <Route path="/super-admin" element={<SuperAdminPage />} />
                     <Route path="/super-admin/restaurant/:id" element={<RestaurantDetailsPage />} />
                     <Route path="/super-admin/restaurant/:id/users" element={<RestaurantUsersPage />} />
+                    {/* Pantallas de administración del restaurante que el super admin está administrando */}
+                    <Route path="/" element={<DashboardPage />} />
+                    <Route path="/orders" element={<OrdersPage />} />
+                    <Route path="/create" element={<CreateItemPage />} />
+                    <Route path="/edit/:id" element={<CreateItemPage />} />
+                    <Route path="/menu" element={<MenuListPage />} />
+                    <Route path="/banners" element={<BannersPage />} />
+                    <Route path="/promotions" element={<PromotionsPage />} />
+                    <Route path="/tables" element={<TablesPage />} />
+                    <Route path="/waiters" element={<WaitersPage />} />
+                    <Route path="/feedback" element={<FeedbackPage />} />
+                    <Route path="/ai-analysis" element={<AiAnalysisPage />} />
+                    <Route path="/menu-structure" element={<ManagedMenuStructurePage />} />
+                    <Route path="/settings" element={<ManagedSettingsPage />} />
                     <Route path="*" element={<Navigate to="/super-admin" />} />
                   </>
                 ) : (

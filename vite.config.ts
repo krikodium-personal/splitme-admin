@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
               hmr: false,
               historyApiFallback: true,
             },
+      base: '/admin/',
       plugins: [tailwindcss(), react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),

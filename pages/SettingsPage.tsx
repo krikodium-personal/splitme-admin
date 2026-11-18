@@ -158,7 +158,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         return;
       }
 
-      const returnUrl = `${window.location.origin}/settings?tab=payments`;
+      const returnUrl = `${window.location.origin}/admin/settings?tab=payments`;
       const { data, error } = await supabase.functions.invoke('mercadopago-oauth-start', {
         body: {
           restaurant_id: restaurant.id,
