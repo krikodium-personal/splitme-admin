@@ -622,11 +622,9 @@ const OrderGroupCard: React.FC<{
               : billableCharges;
             const latestRoundChargeIds = new Set(latestRoundCharges.map((charge: any) => charge.id).filter(Boolean));
             const pendingCharges = latestRoundCharges.filter((charge: any) => charge.status === 'pending');
-            const paymentsToShow = propIsClosed
-              ? payments
-              : payments.filter((payment: any) =>
-                !payment.charge_id || latestRoundChargeIds.has(payment.charge_id)
-              );
+            // Se muestran TODOS los pagos ya registrados de la mesa (de todas las rondas de pago), con su medio de pago;
+            // los cargos pendientes son solo los de la última división.
+            const paymentsToShow = payments;
 
             const guestById = new Map(guests.map((guest: any) => [guest.id, guest]));
             const guestsWithRegisteredPayments = new Set(paymentsToShow.map((payment: any) => payment.guest_id).filter(Boolean));
@@ -664,7 +662,9 @@ const OrderGroupCard: React.FC<{
                   guestId: charge.guest_id,
                   name: guest?.name || 'Comensal',
                   amount: Number(charge.amount) || 0,
-                  paymentMethod: (charge.payment_method || guest?.payment_method || null)?.toLowerCase(),
+                  // Un cargo pendiente solo tiene medio de pago cuando el comensal lo elige para ese cargo:
+                  // no se hereda el de un pago anterior (otra ronda)
+                  paymentMethod: (charge.payment_method || null)?.toLowerCase() || null,
                   paymentId: charge.payment_id || null,
                   isPaid: false,
                   canMarkPaid: false
