@@ -440,7 +440,7 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50 relative">
+    <div className="flex flex-col h-[100dvh] overflow-hidden bg-gray-50 relative">
       <div className="fixed top-6 right-6 z-[100] flex flex-col gap-3 pointer-events-none">
         {toasts.map(toast => (
           <div 
@@ -516,8 +516,8 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
         </button>
       </aside>
 
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-64 bg-white border-r border-gray-100 hidden md:flex flex-col p-6">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <aside className="w-64 shrink-0 bg-white border-r border-gray-100 hidden md:flex flex-col p-6 overflow-y-auto">
           <div className="flex items-center space-x-3 mb-10 min-w-0">
             {restaurant?.logo_url ? (
               <div className="w-[100px] h-[100px] rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center border border-gray-100">
@@ -539,8 +539,8 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
           </button>
         </aside>
 
-        <main className="flex-1 overflow-y-auto">
-          <header className="bg-white border-b border-gray-100 px-4 md:px-8 py-4 sticky top-0 z-40 flex items-center justify-between">
+        <main className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">
+          <header className="shrink-0 bg-white border-b border-gray-100 px-4 md:px-8 py-4 z-40 flex items-center justify-between">
             <div className="flex items-center gap-3 md:gap-2">
               <button
                 onClick={() => setIsMobileMenuOpen(true)}
@@ -561,7 +561,7 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
             </div>
           </header>
           <NewBatchesContext.Provider value={{ newBatchesByOrder, clearNewBatches, clearNewBatchForOrder }}>
-            <div className="p-8">
+            <div className="flex-1 min-h-0 overflow-y-auto p-8">
               {isRestaurantRoute ? (
                 managedId ? (
                   selectedRestaurant?.id === managedId ? children : (
