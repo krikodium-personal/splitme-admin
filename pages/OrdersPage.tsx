@@ -38,6 +38,21 @@ const BatchCard: React.FC<{
   const [isExpanded, setIsExpanded] = useState(batch.status !== 'SERVIDO');
   const [confirmRemoveItemId, setConfirmRemoveItemId] = useState<string | null>(null);
   const [removingItemId, setRemovingItemId] = useState<string | null>(null);
+  // Menú para elegir cualquier estado (saltear pasos). Se posiciona con coordenadas fijas porque la card recorta el desborde.
+  const [statusMenuPos, setStatusMenuPos] = useState<{ top: number; right: number } | null>(null);
+
+  useEffect(() => {
+    if (!statusMenuPos) return;
+    const close = () => setStatusMenuPos(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [statusMenuPos]);
 
   // Colapsar automáticamente cuando el batch se marca como SERVIDO
   useEffect(() => {
@@ -100,7 +115,12 @@ const BatchCard: React.FC<{
           <div className="flex items-center gap-3">
             {currentStatus.next && (
               <button 
-                onClick={() => onUpdateBatchStatus(batch.id, currentStatus.next!)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (statusMenuPos) { setStatusMenuPos(null); return; }
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setStatusMenuPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+                }}
                 className={`flex items-center gap-2 px-3 py-1.5 text-white rounded-xl font-black text-[9px] uppercase tracking-widest transition-all shadow-sm active:scale-95 ${
                   batch.status === 'ENVIADO' 
                     ? 'bg-red-600 hover:bg-red-700'
@@ -111,8 +131,38 @@ const BatchCard: React.FC<{
                     : 'bg-indigo-600 hover:bg-indigo-700'
                 }`}
               >
-                <currentStatus.icon size={10} /> {currentStatus.label}
+                <currentStatus.icon size={10} /> {currentStatus.label} <ChevronDown size={10} />
               </button>
+            )}
+            {statusMenuPos && (
+              <div
+                onClick={e => e.stopPropagation()}
+                style={{ position: 'fixed', top: statusMenuPos.top, right: statusMenuPos.right, zIndex: 200 }}
+                className="w-56 rounded-2xl border border-gray-200 bg-white p-1.5 shadow-2xl"
+              >
+                <p className="px-3 pt-1.5 pb-1 text-[8px] font-black uppercase tracking-widest text-slate-400">Pasar el envío a</p>
+                {([
+                  ['ENVIADO', 'Enviado'],
+                  ['PREPARANDO', 'Preparando'],
+                  ['LISTO', 'Listo'],
+                  ['SERVIDO', 'Servido'],
+                ] as const).map(([value, label]) => {
+                  const isCurrent = batch.status === value;
+                  return (
+                    <button
+                      key={value}
+                      disabled={isCurrent}
+                      onClick={() => { setStatusMenuPos(null); onUpdateBatchStatus(batch.id, value); }}
+                      className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-left text-[11px] font-black uppercase tracking-widest transition-colors ${
+                        isCurrent ? 'bg-slate-50 text-slate-400 cursor-default' : 'text-slate-800 hover:bg-indigo-50'
+                      }`}
+                    >
+                      <span>{label}</span>
+                      {isCurrent ? <span className="text-[8px] text-slate-400">Actual</span> : <Check size={12} className="opacity-0" />}
+                    </button>
+                  );
+                })}
+              </div>
             )}
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isExpanded ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}>
               {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
