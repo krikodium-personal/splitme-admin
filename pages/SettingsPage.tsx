@@ -52,6 +52,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   const [restTiktok, setRestTiktok] = useState('');
   const [restFacebook, setRestFacebook] = useState('');
   const [restYoutube, setRestYoutube] = useState('');
+  const [restWebsite, setRestWebsite] = useState('');
+  const [restContactEmail, setRestContactEmail] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [savingRest, setSavingRest] = useState(false);
@@ -91,6 +93,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         setRestTiktok((restaurant as any).tiktok_url || '');
         setRestFacebook((restaurant as any).facebook_url || '');
         setRestYoutube((restaurant as any).youtube_url || '');
+        setRestWebsite((restaurant as any).website_url || '');
+        setRestContactEmail((restaurant as any).contact_email || '');
         setPreviewUrl(restaurant.logo_url || null);
         
         fetchPaymentConfig();
@@ -362,14 +366,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
 
       const { data: updatedRows, error } = await supabase
         .from('restaurants')
-        .update({ name: restName, address: restAddress, logo_url: finalLogoUrl, instagram_url: restInstagram.trim() || null, tiktok_url: restTiktok.trim() || null, facebook_url: restFacebook.trim() || null, youtube_url: restYoutube.trim() || null })
+        .update({ name: restName, address: restAddress, logo_url: finalLogoUrl, instagram_url: restInstagram.trim() || null, tiktok_url: restTiktok.trim() || null, facebook_url: restFacebook.trim() || null, youtube_url: restYoutube.trim() || null, website_url: restWebsite.trim() || null, contact_email: restContactEmail.trim() || null })
         .eq('id', restaurant.id)
         .select('id');
 
       if (error) throw error;
       if (!updatedRows || updatedRows.length === 0) throw new Error('Tu usuario no tiene permiso para modificar este restaurante.');
 
-      const updatedRest: Restaurant = { ...restaurant, name: restName, address: restAddress, logo_url: finalLogoUrl || undefined, instagram_url: restInstagram.trim() || undefined, tiktok_url: restTiktok.trim() || undefined, facebook_url: restFacebook.trim() || undefined, youtube_url: restYoutube.trim() || undefined } as Restaurant;
+      const updatedRest: Restaurant = { ...restaurant, name: restName, address: restAddress, logo_url: finalLogoUrl || undefined, instagram_url: restInstagram.trim() || undefined, tiktok_url: restTiktok.trim() || undefined, facebook_url: restFacebook.trim() || undefined, youtube_url: restYoutube.trim() || undefined, website_url: restWebsite.trim() || undefined, contact_email: restContactEmail.trim() || undefined } as Restaurant;
       setGlobalRestaurant(updatedRest);
       setRestMessage({ type: 'success', text: 'Información del local actualizada correctamente.' });
     } catch (err: any) {
@@ -514,6 +518,27 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                          value={restYoutube}
                          onChange={e => setRestYoutube(e.target.value)}
                          placeholder="@canal o link"
+                         className="w-full bg-gray-50 border-2 border-transparent rounded-2xl py-4 px-5 font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                       />
+                     </div>
+                   </div>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Página web</label>
+                       <input
+                         value={restWebsite}
+                         onChange={e => setRestWebsite(e.target.value)}
+                         placeholder="www.mirestaurante.com"
+                         className="w-full bg-gray-50 border-2 border-transparent rounded-2xl py-4 px-5 font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                       />
+                     </div>
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Email de contacto</label>
+                       <input
+                         type="email"
+                         value={restContactEmail}
+                         onChange={e => setRestContactEmail(e.target.value)}
+                         placeholder="contacto@mirestaurante.com"
                          className="w-full bg-gray-50 border-2 border-transparent rounded-2xl py-4 px-5 font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                        />
                      </div>
