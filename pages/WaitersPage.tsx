@@ -103,13 +103,19 @@ const WaitersPage: React.FC = () => {
     }
     setSavingTips(true);
     setTipsMessage(null);
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('restaurants')
       .update({ tip_mode: tipMode, tip_pool_alias: alias || null })
-      .eq('id', CURRENT_RESTAURANT.id);
+      .eq('id', CURRENT_RESTAURANT.id)
+      .select('id');
     setSavingTips(false);
     if (error) {
       setTipsMessage({ type: 'error', text: 'No se pudo guardar: ' + error.message });
+      return;
+    }
+    if (!data || data.length === 0) {
+      // Sin permiso, la base no da error: simplemente no modifica ninguna fila
+      setTipsMessage({ type: 'error', text: 'No se pudo guardar: tu usuario no tiene permiso para modificar este restaurante.' });
       return;
     }
     setSavedTipConfig({ mode: tipMode, alias });

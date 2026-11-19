@@ -356,12 +356,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
         finalLogoUrl = urlData.publicUrl;
       }
 
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from('restaurants')
         .update({ name: restName, address: restAddress, logo_url: finalLogoUrl, instagram_url: restInstagram.trim() || null, tiktok_url: restTiktok.trim() || null })
-        .eq('id', restaurant.id);
+        .eq('id', restaurant.id)
+        .select('id');
 
       if (error) throw error;
+      if (!updatedRows || updatedRows.length === 0) throw new Error('Tu usuario no tiene permiso para modificar este restaurante.');
 
       const updatedRest: Restaurant = { ...restaurant, name: restName, address: restAddress, logo_url: finalLogoUrl || undefined, instagram_url: restInstagram.trim() || undefined, tiktok_url: restTiktok.trim() || undefined } as Restaurant;
       setGlobalRestaurant(updatedRest);
