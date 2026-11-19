@@ -4,7 +4,7 @@ import {
   ShoppingBag, Clock, CheckCircle2, Utensils, Hash, 
   MessageSquare, Play, Check, CircleDollarSign, 
   Timer, AlertCircle, Loader2, ChevronDown, ChevronUp, BellRing, X,
-  Maximize2, Minimize2, Archive, CheckCircle, Copy, Trash2, Calendar
+  Maximize2, Minimize2, Archive, CheckCircle, Copy, Trash2, Calendar, Users
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../supabase';
@@ -545,6 +545,8 @@ const OrderGroupCard: React.FC<{
                 <Timer size={10} /> {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 <span className="mx-0.5 opacity-20">•</span>
                 <Hash size={10} /> {order.id.slice(0, 6).toUpperCase()}
+                <span className="mx-0.5 opacity-20">•</span>
+                <Users size={10} /> {orderGuests.length || Number(order.guest_count) || 0} {(orderGuests.length || Number(order.guest_count) || 0) === 1 ? 'comensal' : 'comensales'}
               </div>
               {order.tables?.waiters && (
                 <div className="flex items-center gap-2 mt-2">
