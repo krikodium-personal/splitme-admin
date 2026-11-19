@@ -561,7 +561,7 @@ const Layout: React.FC<{ children: React.ReactNode, profile: Profile | null, res
             </div>
           </header>
           <NewBatchesContext.Provider value={{ newBatchesByOrder, clearNewBatches, clearNewBatchForOrder }}>
-            <div className="flex-1 min-h-0 overflow-y-auto p-8">
+            <div id="admin-scroll" className="flex-1 min-h-0 overflow-y-auto p-8">
               {isRestaurantRoute ? (
                 managedId ? (
                   selectedRestaurant?.id === managedId ? children : (

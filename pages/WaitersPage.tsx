@@ -170,7 +170,8 @@ const WaitersPage: React.FC = () => {
     setSelectedTablesInForm(assigned);
     
     setShowForm(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // El que scrollea es el área de contenido del layout, no la ventana
+    (document.getElementById('admin-scroll') || window).scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const closeForm = () => {
