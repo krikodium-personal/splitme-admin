@@ -65,9 +65,58 @@ const WaitersPage: React.FC = () => {
     password: ''
   });
 
+  // Cobro de propinas: cada mesero en su alias, o un alias único del restaurante que después se reparte
+  const [tipMode, setTipMode] = useState<'individual' | 'pooled'>('individual');
+  const [tipPoolAlias, setTipPoolAlias] = useState('');
+  const [savedTipConfig, setSavedTipConfig] = useState<{ mode: 'individual' | 'pooled'; alias: string }>({ mode: 'individual', alias: '' });
+  const [savingTips, setSavingTips] = useState(false);
+  const [tipsMessage, setTipsMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    const loadTipConfig = async () => {
+      if (!isSupabaseConfigured || !CURRENT_RESTAURANT?.id) return;
+      const { data } = await supabase
+        .from('restaurants')
+        .select('tip_mode, tip_pool_alias')
+        .eq('id', CURRENT_RESTAURANT.id)
+        .maybeSingle();
+      if (data) {
+        const mode = data.tip_mode === 'pooled' ? 'pooled' : 'individual';
+        setTipMode(mode);
+        setTipPoolAlias(data.tip_pool_alias || '');
+        setSavedTipConfig({ mode, alias: data.tip_pool_alias || '' });
+      }
+    };
+    loadTipConfig();
+  }, []);
+
+  const saveTipConfig = async () => {
+    if (!CURRENT_RESTAURANT?.id) return;
+    const alias = tipPoolAlias.trim();
+    if (tipMode === 'pooled' && !alias) {
+      setTipsMessage({ type: 'error', text: 'Ingresá el alias del restaurante para recibir las propinas.' });
+      return;
+    }
+    setSavingTips(true);
+    setTipsMessage(null);
+    const { error } = await supabase
+      .from('restaurants')
+      .update({ tip_mode: tipMode, tip_pool_alias: alias || null })
+      .eq('id', CURRENT_RESTAURANT.id);
+    setSavingTips(false);
+    if (error) {
+      setTipsMessage({ type: 'error', text: 'No se pudo guardar: ' + error.message });
+      return;
+    }
+    setSavedTipConfig({ mode: tipMode, alias });
+    setTipsMessage({ type: 'success', text: 'Forma de cobro de propinas guardada.' });
+  };
+
+  const tipConfigDirty = tipMode !== savedTipConfig.mode || tipPoolAlias.trim() !== savedTipConfig.alias;
 
   const fetchData = async () => {
     if (!isSupabaseConfigured || !CURRENT_RESTAURANT?.id) {
@@ -400,6 +449,62 @@ const WaitersPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Cómo se cobran las propinas */}
+      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-black text-gray-900 tracking-tight">Cobro de propinas</h2>
+          <p className="text-xs text-gray-500 font-medium mt-0.5">Elegí a qué alias transfiere el comensal cuando deja propina y no es en efectivo.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {([
+            ['individual', 'Alias de cada mesero', 'Cada mesero comparte su propio alias y recibe las propinas de sus mesas.'],
+            ['pooled', 'Alias único del restaurante', 'Todas las propinas llegan a un mismo alias y el restaurante las divide después.'],
+          ] as const).map(([value, title, desc]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => { setTipMode(value); setTipsMessage(null); }}
+              className={`text-left rounded-2xl border-2 p-4 transition-all ${
+                tipMode === value ? 'border-indigo-600 bg-indigo-50/50' : 'border-gray-100 hover:border-indigo-200'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${tipMode === value ? 'border-indigo-600' : 'border-gray-300'}`}>
+                  {tipMode === value && <span className="w-2 h-2 rounded-full bg-indigo-600" />}
+                </span>
+                <span className="text-sm font-black text-gray-900">{title}</span>
+              </div>
+              <p className="text-[11px] text-gray-500 font-medium mt-1.5 ml-6">{desc}</p>
+            </button>
+          ))}
+        </div>
+        {tipMode === 'pooled' && (
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Alias del restaurante para propinas</label>
+            <input
+              value={tipPoolAlias}
+              onChange={e => { setTipPoolAlias(e.target.value); setTipsMessage(null); }}
+              placeholder="Ej: soraya.propinas"
+              className="w-full md:max-w-md bg-gray-50 border-transparent border-2 rounded-2xl px-5 py-3 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+            />
+            <p className="text-[10px] text-gray-400 ml-1">Los alias individuales de los meseros no se muestran al comensal mientras esté activa esta opción.</p>
+          </div>
+        )}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={saveTipConfig}
+            disabled={savingTips || !tipConfigDirty}
+            className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-black uppercase tracking-widest disabled:opacity-40 hover:bg-indigo-700 transition-all"
+          >
+            {savingTips ? 'Guardando...' : 'Guardar'}
+          </button>
+          {tipsMessage && (
+            <span className={`text-xs font-bold ${tipsMessage.type === 'success' ? 'text-emerald-600' : 'text-rose-600'}`}>{tipsMessage.text}</span>
+          )}
+        </div>
+      </div>
+
       {showForm && (
         <div className="bg-white rounded-[2.5rem] p-10 shadow-2xl border border-indigo-50 animate-in slide-in-from-top-4 duration-500 max-w-4xl mx-auto">
           <div className="flex items-center gap-3 mb-8">
@@ -692,7 +797,12 @@ const WaitersPage: React.FC = () => {
                   </div>
 
                   {/* Alias para Propinas */}
-                  {waiter.alias_tip && (
+                  {tipMode === 'pooled' ? (
+                    <div className="w-full px-4 py-2 bg-slate-50 rounded-xl border border-slate-100">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Propinas</span>
+                      <p className="text-[11px] font-bold text-slate-500 truncate">Alias del restaurante{savedTipConfig.alias ? `: ${savedTipConfig.alias}` : ''}</p>
+                    </div>
+                  ) : waiter.alias_tip && (
                     <div className="w-full px-4 py-2 bg-emerald-50/50 rounded-xl border border-emerald-100/50">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Alias Propinas</span>

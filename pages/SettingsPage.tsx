@@ -48,6 +48,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
   // Estados para Información del Restaurante
   const [restName, setRestName] = useState('');
   const [restAddress, setRestAddress] = useState('');
+  const [restInstagram, setRestInstagram] = useState('');
+  const [restTiktok, setRestTiktok] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [savingRest, setSavingRest] = useState(false);
@@ -83,6 +85,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
       if (restaurant) {
         setRestName(restaurant.name);
         setRestAddress(restaurant.address || '');
+        setRestInstagram((restaurant as any).instagram_url || '');
+        setRestTiktok((restaurant as any).tiktok_url || '');
         setPreviewUrl(restaurant.logo_url || null);
         
         fetchPaymentConfig();
@@ -354,12 +358,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
 
       const { error } = await supabase
         .from('restaurants')
-        .update({ name: restName, address: restAddress, logo_url: finalLogoUrl })
+        .update({ name: restName, address: restAddress, logo_url: finalLogoUrl, instagram_url: restInstagram.trim() || null, tiktok_url: restTiktok.trim() || null })
         .eq('id', restaurant.id);
 
       if (error) throw error;
 
-      const updatedRest: Restaurant = { ...restaurant, name: restName, address: restAddress, logo_url: finalLogoUrl || undefined };
+      const updatedRest: Restaurant = { ...restaurant, name: restName, address: restAddress, logo_url: finalLogoUrl || undefined, instagram_url: restInstagram.trim() || undefined, tiktok_url: restTiktok.trim() || undefined } as Restaurant;
       setGlobalRestaurant(updatedRest);
       setRestMessage({ type: 'success', text: 'Información del local actualizada correctamente.' });
     } catch (err: any) {
@@ -468,6 +472,27 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ restaurant }) => {
                         />
                      </div>
                    </div>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">Instagram</label>
+                       <input
+                         value={restInstagram}
+                         onChange={e => setRestInstagram(e.target.value)}
+                         placeholder="@usuario o link"
+                         className="w-full bg-gray-50 border-2 border-transparent rounded-2xl py-4 px-5 font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                       />
+                     </div>
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest ml-1">TikTok</label>
+                       <input
+                         value={restTiktok}
+                         onChange={e => setRestTiktok(e.target.value)}
+                         placeholder="@usuario o link"
+                         className="w-full bg-gray-50 border-2 border-transparent rounded-2xl py-4 px-5 font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                       />
+                     </div>
+                   </div>
+                   <p className="text-[10px] text-gray-400 ml-1 -mt-2">Se muestran al comensal en la pantalla final de agradecimiento.</p>
                  </div>
                </div>
              </div>
