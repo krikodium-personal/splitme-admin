@@ -2145,12 +2145,17 @@ const OrdersPage: React.FC = () => {
       if (archiveResult.success) {
         console.log('✅ Órdenes archivadas correctamente:', archiveResult);
         const totalArchived = archiveResult.archived_orders || 0;
-        setErrorMsg(`✅ Se archivaron ${totalArchived} orden${totalArchived !== 1 ? 'es' : ''} correctamente`);
+        const totalFailed = archiveResult.failed_orders || 0;
+        setErrorMsg(
+          totalFailed > 0
+            ? `⚠️ Se archivaron ${totalArchived} y ${totalFailed} no se pudieron archivar: ${archiveResult.first_error || 'error desconocido'}`
+            : `✅ Se archivaron ${totalArchived} orden${totalArchived !== 1 ? 'es' : ''} correctamente`
+        );
         
         // Refrescar las órdenes después de un breve delay
         setTimeout(async () => {
           await fetchActiveOrders();
-          setErrorMsg(null);
+          if (!totalFailed) setErrorMsg(null);
         }, 2000);
       } else {
         console.error("❌ El archivado no fue exitoso:", archiveResult);
