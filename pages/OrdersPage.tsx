@@ -391,7 +391,15 @@ const OrderGroupCard: React.FC<{
   // el exceso se avisa abajo para que se revise.
   const isTotalAmountPaid = totalAmount > 0 && totalPaidAmount >= totalAmount - amountTolerance;
   const overpaidAmount = totalPaidAmount - totalAmount > amountTolerance ? totalPaidAmount - totalAmount : 0;
-  const rawOutstandingAmount = totalAmount - totalPaidAmount;
+  // Lo que el comensal debe pagar ahora = lo ya servido (con el descuento por monto de cuenta).
+  // Lo enviado que todavía no se sirvió no se cobra hasta que llegue a la mesa.
+  const servedGross = allBatches
+    .filter((b: any) => b.status === 'SERVIDO')
+    .flatMap((b: any) => b.order_items || [])
+    .reduce((sum: number, it: any) => sum + (Number(it.unit_price) || 0) * (Number(it.quantity) || 1), 0);
+  const servedPayable = Math.min(totalAmount, Math.round(servedGross * (1 - (Number(order.discount_percent) || 0) / 100)));
+  const unservedAmount = Math.max(0, totalAmount - servedPayable);
+  const rawOutstandingAmount = servedPayable - totalPaidAmount;
   const outstandingAmount = Math.abs(rawOutstandingAmount) <= amountTolerance ? 0 : Math.max(0, rawOutstandingAmount);
 
   // Todos los guests con individual_amount > 0 tienen paid=TRUE (todos los que debían pagar ya pagaron)
@@ -593,6 +601,11 @@ const OrderGroupCard: React.FC<{
               <p className={`text-xl font-black tracking-tighter ${outstandingAmount > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                 ${outstandingAmount.toLocaleString('es-CL')}
               </p>
+              {unservedAmount > 0 && (
+                <p className="mt-1 text-[10px] font-bold text-slate-400">
+                  Sin servir (no se cobra todavía): ${unservedAmount.toLocaleString('es-CL')}
+                </p>
+              )}
               {overpaidAmount > 0 && (
                 <p className="mt-1 text-[10px] font-black text-red-600">
                   ⚠ Se registró ${overpaidAmount.toLocaleString('es-CL')} de más: revisá si hay un pago duplicado.
